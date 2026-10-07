@@ -40,6 +40,8 @@ type Frame struct {
 	BlackArea []*coord.Coord `json:"black_area"`
 	WhiteArea []*coord.Coord `json:"white_area"`
 	Dame      []*coord.Coord `json:"dame"`
+
+	Score *ScoreBreakdown `json:"score,omitempty"`
 }
 
 // Marks provides data for any marks on the board
@@ -184,7 +186,7 @@ func (s *State) GenerateFullFrame(t TreeJSONType) *Frame {
 	frame.TreeJSON = s.saveTree(t)
 	frame.BlackCaps = s.current.BlackCaps
 	frame.WhiteCaps = s.current.WhiteCaps
-	return frame
+	return s.withEstimate(frame)
 }
 
 func (s *State) GenerateTreeOnly(t TreeJSONType) *Frame {
@@ -197,5 +199,16 @@ func (s *State) GenerateTreeOnly(t TreeJSONType) *Frame {
 	frame.TreeJSON = s.saveTree(t)
 	frame.BlackCaps = s.current.BlackCaps
 	frame.WhiteCaps = s.current.WhiteCaps
+	return s.withEstimate(frame)
+}
+
+func (s *State) withEstimate(frame *Frame) *Frame {
+	if s.estimate != nil {
+		estimate := s.scoreFrame()
+		frame.Score = estimate.Score
+		frame.BlackCaps, frame.WhiteCaps = estimate.BlackCaps, estimate.WhiteCaps
+		frame.BlackArea, frame.WhiteArea, frame.Dame = estimate.BlackArea, estimate.WhiteArea, estimate.Dame
+		frame.Marks = nil
+	}
 	return frame
 }

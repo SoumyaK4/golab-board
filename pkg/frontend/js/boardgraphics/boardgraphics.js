@@ -763,7 +763,7 @@ class BoardGraphics {
             color = this.state.black_stone_color;
         }
         let id = "marks";
-        return this.draw_filled_square(x, y, color, id);
+        return this.draw_filled_square(x, y, color, id, this.score_strength(x, y));
     }
 
     draw_white_area(x, y) {
@@ -772,17 +772,21 @@ class BoardGraphics {
         if (this.state.white_stone_color.startsWith("#")) {
             color = this.state.white_stone_color;
         }
-        return this.draw_filled_square(x, y, color, id);
+        return this.draw_filled_square(x, y, color, id, this.score_strength(x, y));
     }
 
-    draw_filled_square(x, y, hexColor, id) {
+    score_strength(x, y) {
+        const confidence = this.state.score?.confidence[y * this.size + x];
+        return confidence == null ? 1 : Math.max(0.1, Math.min(1, Math.abs(confidence)));
+    }
+
+    draw_filled_square(x, y, hexColor, id, strength = 1) {
         if (x < 0 || x >= this.size || y < 0 || y >= this.size) {
             return;
         }
 
         let [real_x, real_y] = this.real_coord(x, y);
-        let r = (this.side/3);
-        let b = r;
+        let b = this.side * 0.4 * strength;
         let rect = document.createElementNS(this.svgns, "rect");
         rect.setAttribute("width", b);
         rect.setAttribute("height", b);

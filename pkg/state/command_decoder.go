@@ -205,6 +205,14 @@ func DecodeToCommand(evt event.Event) (Command, error) {
 			return nil, fmt.Errorf("'value' should be a string")
 		}
 		return NewGraftCommand(v), nil
+	case "estimate":
+		return NewEstimateCommand(), nil
+	case "estimate_mark":
+		c, err := coord.FromInterface(evt.Value())
+		if err != nil {
+			return nil, err
+		}
+		return NewEstimateMarkCommand(c), nil
 	case "score":
 		return NewScoreCommand(), nil
 	case "markdead":

@@ -147,6 +147,7 @@ class NetworkHandler {
 
         document.addEventListener("keydown", (event) => this.keydown(event));
         document.addEventListener("keyup", (event) => this.keyup(event));
+        document.addEventListener("wheel", (event) => this.wheel(event), {passive: false});
 
         window.addEventListener("focus", () => this.focus());
     }
@@ -346,7 +347,7 @@ class NetworkHandler {
     }
 
     prepare_score() {
-        let payload = {"event": "score"};
+        let payload = {"event": "estimate"};
         this.prepare(payload);
     }
 
@@ -476,7 +477,47 @@ class NetworkHandler {
         this.fromserver(payload);
     }
 
+    wheel(event) {
+        if (!this.state?.wheel_navigation || this.state.modals.modals_up.size > 0 ||
+            !event.target.closest?.("#review, #explorer_container") ||
+            document.activeElement?.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])") ||
+            event.altKey || event.metaKey) {
+            return;
+        }
+        const delta = event.deltaY || (event.shiftKey ? event.deltaX : 0);
+        if (!delta || (!event.shiftKey && Math.abs(event.deltaX) > Math.abs(event.deltaY))) return;
+        event.preventDefault();
+
+        const now = performance.now();
+        if (now - (this.last_wheel_time ?? -Infinity) < 120) return;
+        this.last_wheel_time = now;
+        const forward = delta > 0;
+        if (event.ctrlKey) {
+            if (forward) this.prepare_fastforward();
+            else this.prepare_rewind();
+        } else if (event.shiftKey) {
+            const tree = this.state.tree_graphics;
+            const target = tree.navigation_target(forward ? 10 : -10);
+            if (target != null && target !== tree.current_index) {
+                this.prepare({event: "goto_grid", value: target});
+            }
+        } else if (forward) {
+            this.prepare_right();
+        } else {
+            this.prepare_left();
+        }
+    }
+
     keydown(event) {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o" &&
+            !event.shiftKey && !event.altKey && !event.isComposing) {
+            event.preventDefault();
+            if (!event.repeat && this.state.modals.modals_up.size === 0) {
+                this.state.modals.show_modal("upload-modal");
+            }
+            return;
+        }
+
         let payload = {"event": "keydown", "value": event.key};
         let shift = this.state.keys_down.has("Shift");
         let ctrl = this.state.keys_down.has("Control");
@@ -484,8 +525,8 @@ class NetworkHandler {
         let meta = this.state.keys_down.has("Meta");
         // logical xor
         let jump = this.state.branch_jump != shift
-        let on_input_bar = document.activeElement.tagName == "INPUT";
-        if (on_input_bar) {
+        if (event.isComposing || this.state.modals.modals_up.size > 0 ||
+            document.activeElement?.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) {
             return;
         }
 
@@ -581,8 +622,9 @@ class NetworkHandler {
                 }
                 break;
             case "Enter":
-                if (ctrl) {
-                    this.state.trigger_score();
+                if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+                    event.preventDefault();
+                    if (!event.repeat) this.state.trigger_score();
                 }
                 break;
             default:
@@ -598,7 +640,7 @@ class NetworkHandler {
 
     pointerdown(event) {
         if (event.pointerType == "mouse") {
-            this.state.ispointerdown = true;
+            this.state.ispointerdown = !event.altKey;
             //let payload = {"event": "pointerdown"};
             //this.prepare(payload);
         }
@@ -621,7 +663,7 @@ class NetworkHandler {
 
     pointermove(event) {
         if (event.pointerType == "mouse") {
-            if (this.state.mark == "pen" && this.state.ispointerdown) {
+            if (this.state.mark == "pen" && this.state.ispointerdown && !event.altKey) {
                 let [x,y,inside] = this.state.board_graphics.board_relative_coords(event.clientX, event.clientY);
                 let x0 = this.state.penx;
                 if (x0 == null) {
@@ -705,10 +747,15 @@ class NetworkHandler {
         let has_child = false;
         let stone_there = this.state.board.get(new Coord(coords[0], coords[1])) != 0;
 
+        if (event.altKey) {
+            if (stone_there) this.prepare({event: "goto_coord", value: coords});
+            return;
+        }
+
         let payload = {};
 
         if (this.state.mark == "score") {
-            payload = {"event": "markdead", value: coords};
+            payload = {"event": "estimate_mark", value: coords};
         } else if (this.state.mark != "") {
             if (this.state.mark == "pen") {
                 return;

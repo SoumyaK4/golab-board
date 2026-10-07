@@ -8,197 +8,109 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-function create_review() {
-    let review_container = document.createElement("div");
-    let review = document.createElement("div");
-    review.id = "review";
-    review.setAttribute("size", "19");
-    review_container.appendChild(review);
-    return review_container;
-}
-
-function create_buttons1() {
-    let buttons1 = document.createElement("div");
-    buttons1.id = "buttons-row1";
-
-    let buttons1_container = document.createElement("div");
-    buttons1_container.appendChild(buttons1);
-    buttons1_container.style.flex = "1";
-    return buttons1_container;
-}
-
-function create_buttons2() {
-    let buttons2 = document.createElement("div");
-    buttons2.id = "buttons-row2";
-
-    let buttons2_container = document.createElement("div");
-    buttons2_container.appendChild(buttons2);
-    buttons2_container.style.flex = "1";
-
-    return buttons2_container;
-}
-
-function create_buttons3() {
-    let buttons3 = document.createElement("div");
-    buttons3.id = "buttons-row3";
-
-    let buttons3_container = document.createElement("div");
-    buttons3_container.appendChild(buttons3);
-
-    return buttons3_container;
-}
-
-function create_explorer() {
-    let explorer_container = document.createElement("div");
-    let container = document.createElement("div");
-    container.id = "explorer_container";
-    container.style.overflowX = "auto";
-    container.style.overflowY = "auto";
-    container.style.resize = "vertical";
-    let explorer = document.createElement("div");
-    explorer.id = "explorer";
-    explorer.style.position = "relative";
-    container.appendChild(explorer);
-    explorer_container.appendChild(container);
-    return explorer_container;
-}
-
-function create_arrows() {
-    let arrows = document.createElement("div");
-    arrows.id = "arrows";
-
-    let arrows_container = document.createElement("div");
-    arrows_container.appendChild(arrows);
-
-    return arrows_container;
-}
-
-function create_comments() {
-    let comments = document.createElement("div");
-    comments.id = "comments";
-
-    let comments_container = document.createElement("div");
-    comments_container.appendChild(comments);
-
-    return comments_container;
-}
-
-function _layout(height) {
-    let container_fluid = document.createElement("div");
-    container_fluid.classList.add("container-fluid");
-    container_fluid.classList.add("text-center");
-
-    let cols = document.createElement("div");
-    cols.classList.add("d-flex");
-    cols.classList.add("gap-3");
-    cols.classList.add("flex-column", "flex-md-row");
-
-    let col1 = document.createElement("div");
-    col1.classList.add("d-flex");
-    col1.classList.add("flex-column");
-    col1.style.width = "65%";
-
-    let col2 = document.createElement("div");
-    col2.classList.add("d-flex");
-    col2.classList.add("flex-column");
-    col2.classList.add("flex-fill");
-
-    let button_row = document.createElement("div");
-    button_row.classList.add("d-flex");
-    button_row.appendChild(create_buttons1());
-    button_row.appendChild(create_buttons2());
-
-    col1.appendChild(button_row);
-    col1.appendChild(create_review());
-    col1.appendChild(create_arrows());
-    col1.appendChild(create_buttons3());
-
-    col2.appendChild(create_explorer());
-    col2.appendChild(create_comments());
-
-    cols.appendChild(col1);
-    cols.appendChild(col2);
-
-    container_fluid.appendChild(cols);
-
-    return container_fluid;
-}
-
-function create_div(cl, id) {
-    let d = document.createElement("div");
-    if (cl != null && cl != "") {
-        d.setAttribute("class", cl);
-    }
-    if (id != null && id != "") {
-        d.id = id;
-    }
-    return d;
-}
-
-function layout() {
-    let container_fluid = document.createElement("div");
-    container_fluid.classList.add("container-fluid");
-    container_fluid.classList.add("text-center");
-
-    let row1 = create_div("row");
-    let a = create_div("col-lg-4 col-sm-12 gx-0", "buttons-row1-container");
-    let a1 = create_div("", "buttons-row1");
-    a.appendChild(a1);
-    let b = create_div("col-lg-4 col-sm-12 gx-0", "buttons-row2-container");
-    let b1 = create_div("", "buttons-row2");
-    b.appendChild(b1);
-    let c1 = create_div("col-lg-2 col-6 gx-0 ps-lg-4", "black-namecard-container");
-    let c2 = create_div("col-lg-2 col-6 gx-0", "white-namecard-container");
-    //let namecards = create_div("w-100 h-100", "namecards");
-    //c.appendChild(namecards);
-
-    row1.appendChild(a);
-    row1.appendChild(b);
-    row1.appendChild(c1);
-    row1.appendChild(c2);
-
-    let row2 = create_div("row");
-    let d = create_div("col-lg-8 col-sm-12 gx-0");
-    let r = create_div("", "review");
-    r.setAttribute("size", "19");
-    let arrows = create_div("", "arrows");
-    let b3 = create_div("", "buttons-row3");
-    d.appendChild(r);
-    d.appendChild(arrows);
-    d.appendChild(b3);
-
-    let e = create_div("col-lg-4 gx-0 ps-lg-4");
-    let exp_container = create_div("", "explorer_container");
-    exp_container.style.overflowX = "auto";
-    exp_container.style.overflowY = "auto";
-    exp_container.style.resize = "vertical";
-    let explorer = create_div("", "explorer");
-    explorer.style.position = "relative";
-    exp_container.appendChild(explorer);
-    let comments = create_div("", "comments");
-    e.appendChild(exp_container);
-    e.appendChild(comments);
-
-    row2.appendChild(d);
-    row2.appendChild(e);
-
-    //let row3 = create_div("row");
-    //let f = create_div("col-lg-8 col-sm-12 gx-0");
-    //let b3 = create_div("", "buttons-row3");
-    //f.appendChild(b3);
-
-    //row3.appendChild(f);
-
-    container_fluid.appendChild(row1);
-    container_fluid.appendChild(row2);
-    //container_fluid.appendChild(row3);
-
-    return container_fluid;
+function create_div(className, id) {
+    const element = document.createElement("div");
+    element.className = className;
+    if (id) element.id = id;
+    return element;
 }
 
 export function create_layout() {
-    let content = document.getElementById("content");
-    content.appendChild(layout());
+    const content = document.getElementById("content");
+    const header = document.createElement("header");
+    header.className = "workspace-header";
+    header.innerHTML = `<a class="brand" href="/" aria-label="Go Lab home"><span class="icon-circle-logo" aria-hidden="true"></span></a>
+        <div class="room-actions"><a href="/about" target="_blank" rel="noopener noreferrer" class="help-link">Help <i class="bi bi-arrow-up-right" aria-hidden="true"></i></a><button class="btn btn-primary" id="share-board" type="button" aria-label="Copy invite link"><i class="bi bi-link-45deg" aria-hidden="true"></i> <span class="invite-label">Copy invite link</span><span class="invite-label-short">Invite</span></button></div>`;
+    const roomName = decodeURIComponent(window.location.pathname.split("/").pop());
+    document.title = `${roomName} · Go Lab`;
+    const shareStatus = document.createElement("p");
+    shareStatus.className = "share-status";
+    shareStatus.setAttribute("role", "status");
+    const shareButton = header.querySelector("#share-board");
+    let feedbackTimer;
+    shareButton.addEventListener("click", async () => {
+        clearTimeout(feedbackTimer);
+        try {
+            await navigator.clipboard.writeText(window.location.origin + window.location.pathname);
+            shareStatus.textContent = "Link copied. Send it to a friend to join this board.";
+            feedbackTimer = setTimeout(() => { shareStatus.textContent = ""; }, 5000);
+        } catch {
+            shareStatus.textContent = "Copy the address from your browser to invite someone to this board.";
+        }
+    });
+    content.append(shareStatus);
 
-    return {};
+    const workspace = create_div("workspace");
+    const board = create_div("board-main");
+    const tools = create_div("board-tools");
+    for (const [id, label] of [["buttons-row1", "Stones & markers"], ["buttons-row2", "Drawing & editing"]]) {
+        const group = create_div("tool-group", `${id}-container`);
+        const caption = document.createElement("p");
+        caption.className = "panel-label";
+        caption.textContent = label;
+        const buttons = create_div("tool-buttons", id);
+        buttons.setAttribute("role", "group");
+        buttons.setAttribute("aria-label", label);
+        group.append(caption, buttons);
+        tools.append(group);
+    }
+    const review = create_div("", "review");
+    review.setAttribute("size", "19");
+    const arrows = create_div("navigation-buttons", "arrows");
+    arrows.setAttribute("role", "group");
+    arrows.setAttribute("aria-label", "Move navigation");
+    const actions = create_div("board-actions", "buttons-row3");
+    actions.setAttribute("role", "group");
+    actions.setAttribute("aria-label", "Game and room options");
+    board.append(review);
+
+    const sidebar = document.createElement("aside");
+    sidebar.className = "board-sidebar";
+    sidebar.setAttribute("aria-label", "Game details");
+    const players = create_div("player-cards");
+    players.append(create_div("", "black-namecard-container"), create_div("", "white-namecard-container"));
+    const heading = document.createElement("h2");
+    heading.className = "panel-label tree-heading";
+    heading.textContent = "Game tree";
+    const explorerContainer = create_div("", "explorer_container");
+    explorerContainer.setAttribute("aria-label", "Game variations");
+    explorerContainer.tabIndex = 0;
+    const explorer = create_div("", "explorer");
+    explorer.style.position = "relative";
+    explorerContainer.append(explorer);
+    const hint = document.createElement("p");
+    hint.className = "workspace-hint";
+    hint.innerHTML = '<i class="bi bi-lightbulb" aria-hidden="true"></i> Explore a new move to create a variation. Use ← → to step through the game.';
+    const score = create_div("score-panel", "score-estimate");
+    score.hidden = true;
+    score.setAttribute("aria-label", "Local score estimate");
+    sidebar.append(score, heading, explorerContainer, hint, create_div("", "comments"));
+    const roomInfo = create_div("board-info");
+    const controls = create_div("board-controls");
+    controls.append(actions, arrows);
+    roomInfo.append(header, players, controls);
+    workspace.append(roomInfo, tools, board, sidebar);
+    content.append(workspace);
+
+    function updateLayout() {
+        const contentStyle = getComputedStyle(content);
+        const workspaceStyle = getComputedStyle(workspace);
+        const availableWidth = content.clientWidth - parseFloat(contentStyle.paddingLeft) - parseFloat(contentStyle.paddingRight);
+        const availableHeight = window.innerHeight - parseFloat(contentStyle.paddingTop) - parseFloat(contentStyle.paddingBottom);
+        const sideWidth = parseFloat(workspaceStyle.getPropertyValue("--side-min"));
+        const gap = parseFloat(workspaceStyle.getPropertyValue("--column-gap"));
+        const fullHeightFits = availableWidth >= availableHeight + 2 * (sideWidth + gap);
+        const layout = window.innerWidth <= 800 ? "stacked" : fullHeightFits ? "wide" : "compact";
+        if (workspace.dataset.layout === layout) return;
+        workspace.dataset.layout = layout;
+        if (layout === "stacked") {
+            board.append(controls);
+        } else if (layout === "compact") {
+            workspace.insertBefore(controls, sidebar);
+        } else {
+            roomInfo.append(controls);
+        }
+    }
+    updateLayout();
+    return {resize: updateLayout};
 }

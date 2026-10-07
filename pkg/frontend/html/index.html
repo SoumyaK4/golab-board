@@ -1,46 +1,46 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     {{ template "header.html" }}
-    <script>
-        window.addEventListener("load",
-            () => {
-                let bar = document.getElementById("board_id");
-                bar.focus();
-            }
-        );
-    </script>
-    <body>
+    <body class="home-page">
         {{ template "menubar.html" }}
-
-       <div class="container text-center">
-            <div class="row mt-3 mb-5">
-                <div class="col-lg-3"></div>
-                <div class="col-lg-6 col-sm-12">
-                    <span class="icon-square-banner" style="font-size:400%;"></span>
+        <main class="home-main">
+            <section class="hero" aria-labelledby="hero-title">
+                <div class="hero-copy">
+                    <p class="eyebrow"><span></span> THE SHARED GO BOARD</p>
+                    <h1 id="hero-title">Good moves start<br>with <em>an idea.</em></h1>
+                    <p class="hero-description">A space to study, explore, and play Go together. Open a board, invite a friend, and see where the next move takes you.</p>
+                    <form class="create-board" method="post" action="/new">
+                        <label for="board_id">Give your board a name <span>(optional)</span></label>
+                        <div class="create-board-fields">
+                            <input id="board_id" class="form-control" type="text" name="board_id" placeholder="e.g. sunday-study" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="board-hint">
+                            <button class="btn btn-primary" type="submit">New Game <i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+                        </div>
+                        <p id="board-hint">Leave it blank for a fresh board, or enter an existing name to rejoin.</p>
+                    </form>
+                    <div class="hero-benefits"><span><i class="bi bi-check2" aria-hidden="true"></i> No sign-up</span><span><i class="bi bi-check2" aria-hidden="true"></i> Free &amp; open source</span></div>
                 </div>
-                <div class="col-lg-3"></div>
-            </div>
-        </div>
-
-
-        <div class="container text-center">
-
-            <form method="post" action="/new">
-                <div class="row">
-                    <div class="col-lg-3"></div>
-                    <div class="col-lg-4 col-sm-12 mb-1">
-                        <input id="board_id" class="form-control" type="text" name="board_id" placeholder="Enter a name for your board">
-                    </div>
-                    <div class="col-lg-2 col-sm-12 mb-1">
-                        <input class="btn w-100 btn-light" type="submit" value="New Board" />
-                    </div>
-                    <div class="col-lg-3"></div>
+                <div class="board-preview" aria-hidden="true">
+                    <div class="preview-caption"><span>ROOM FOR POSSIBILITIES</span><span>01 — ∞</span></div>
+                    <div class="preview-wood"><div class="preview-grid">
+                        <span class="preview-stone black" style="--x:2;--y:2"></span>
+                        <span class="preview-stone white" style="--x:6;--y:6"></span>
+                        <span class="preview-stone black" style="--x:6;--y:2"></span>
+                        <span class="preview-stone white" style="--x:2;--y:6"></span>
+                        <span class="preview-stone black" style="--x:3;--y:6"></span>
+                        <span class="preview-stone white" style="--x:3;--y:7"></span>
+                        <span class="preview-stone black" style="--x:4;--y:7"></span>
+                        <span class="preview-stone white" style="--x:2;--y:5"></span>
+                        <span class="preview-stone black last" style="--x:4;--y:5"></span>
+                    </div></div>
+                    <div class="preview-note"><span class="note-stones" aria-hidden="true">● ○</span> One board. A thousand possibilities.</div>
                 </div>
-            </form>
-
-        </div>
-
+            </section>
+            <section class="feature-strip" aria-label="Ways to use Go Lab">
+                <article><span class="feature-number">01</span><div><h2>Think together</h2><p>Share a link and explore the same board in real time.</p></div></article>
+                <article><span class="feature-number">02</span><div><h2>Follow every variation</h2><p>Branch out, annotate, and find the moves worth keeping.</p></div></article>
+                <article><span class="feature-number">03</span><div><h2>Bring your games</h2><p>Drop in an SGF, GIB, or NGF file and start your review.</p></div></article>
+            </section>
+        </main>
         {{ template "footer.html" }}
-
     </body>
 </html>

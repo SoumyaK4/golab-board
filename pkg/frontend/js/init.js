@@ -11,19 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 import { State } from './state.js'
 import { NetworkHandler } from './network_handler.js'
 
-function add_style() {
-    document.body.style.background = "#F5F5F5";
-    let style = document.createElement("style");
-    style.type = "text/css";
-    style.innerHTML = `
-    .wide-button {display: block; width: 100%;}
-    `;
-    document.getElementsByTagName("head")[0].appendChild(style);
-}
-
 function init() {
-    add_style();
-
     // http -> ws, https -> wss
     let protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     let host = window.location.host;

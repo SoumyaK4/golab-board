@@ -669,6 +669,23 @@ function behavior_settings(state) {
     behavior_collapse.classList.add("collapse");
     behavior_collapse.id = "behavior-collapse";
 
+    const wheel_setting = document.createElement("div");
+    wheel_setting.className = "mb-3";
+    wheel_setting.innerHTML = `
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="wheel-navigation-switch" aria-describedby="wheel-navigation-help">
+            <label class="form-check-label" for="wheel-navigation-switch">Mouse-wheel navigation</label>
+        </div>
+        <p class="small text-body-secondary mb-0" id="wheel-navigation-help">Over the board or game tree: scroll down to go forward, up to go back. Hold Shift to jump 10 moves, or Ctrl to jump to the start/end. Follows the selected variation.</p>`;
+    const wheel_switch = wheel_setting.querySelector("input");
+    state.wheel_navigation = localStorage.getItem("wheel_navigation") !== "false";
+    wheel_switch.checked = state.wheel_navigation;
+    wheel_switch.addEventListener("change", () => {
+        state.wheel_navigation = wheel_switch.checked;
+        localStorage.setItem("wheel_navigation", String(wheel_switch.checked));
+    });
+    behavior_collapse.appendChild(wheel_setting);
+
     // up/down toggle
     let updown_element = document.createElement("div");
     updown_element.innerHTML = "Up/Down Keys "

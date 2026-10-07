@@ -83,7 +83,7 @@
                     </p>
 
                     <p class="h6 lh-lg" style="text-align:justify;">
-                    <button class="btn btn-light"><i class="bi-calculator"></i></button> Score the board state. Mark dame or dead groups. (Keyboard shortcut: Ctrl+Enter/Cmd+Enter)
+                    <button class="btn btn-light"><i class="bi-calculator"></i></button> Toggle the local score estimate on/off, with automatic dead-group detection and rule-aware totals. Click a stone to toggle its whole group dead/alive; click an empty point to cycle Black, White, neutral. Smaller ownership squares indicate less certainty. Open the score breakdown to see territory, captures, stones, komi, and handicap adjustments. (Keyboard shortcut: Ctrl+Enter/Cmd+Enter)
                     </p>
 
                     <p class="h6 lh-lg" style="text-align:justify;">
@@ -91,7 +91,7 @@
                     </p>
 
                     <p class="h6 lh-lg" style="text-align:justify;">
-                    <button class="btn btn-light"><i class="bi-upload"></i></button> Upload SGFs:
+                    <button class="btn btn-light"><i class="bi-upload"></i></button> Upload SGFs (Ctrl+O / Cmd+O):
                     <ul style="text-align:left;">
                         <li>Upload from the device. Upload multiple files at a time, or even zip files.</li>
                         <li>Paste an SGF</li>
@@ -138,6 +138,14 @@
 
                     <p class="h6 lh-lg" id="updown" style="text-align:justify;">
                     The left and right arrow keys move left and right in the game tree. The up and down arrow keys move up and down branches (a la OGS), while shift+up and shift+down modify which branch to follow (a la KGS). This functionality can be switched in the settings by clicking on the <button class="btn btn-light"><i class="bi-gear"></i></button> button.
+                    </p>
+
+                    <p class="h5" id="mouse-navigation">Mouse Navigation</p>
+                    <p class="lh-lg" style="text-align:left;">
+                    Scroll over the board or game tree to move forward (down) or backward (up).
+                    Hold Shift to jump 10 moves along the selected variation, or Ctrl to jump to the start or end.
+                    Mouse-wheel navigation can be disabled in Settings → Behavior; this preference is saved in your browser.
+                    Alt+click a stone to jump to its move in any tool mode. Shift+click also jumps to a move when placing alternating stones.
                     </p>
 
                     <p class="h5" id="input-buffer">Input Buffer</p>

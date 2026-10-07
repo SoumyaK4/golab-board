@@ -8,8 +8,6 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-import { get_viewport } from './common.js';
-
 export {
     TreeGraphics
 }
@@ -93,6 +91,8 @@ class TreeGraphics {
         this.y_offset = 2*this.r;
 
         this.current = [0,0];
+        this.current_index = null;
+        this.preferred_path = [];
         this.height = container.offsetHeight;
         this.edges = [];
         this.preferred_edges = [];
@@ -135,26 +135,7 @@ class TreeGraphics {
     }
 
     resize() {
-        let vp = get_viewport();
-        let new_width = 0;
-        if (vp == "xs" || vp == "sm" || vp == "md") {
-            let content = document.getElementById("content");
-            new_width = content.offsetWidth;
-
-            let review = document.getElementById("review");
-            let arrows = document.getElementById("arrows");
-            let h = review.offsetHeight + arrows.offsetHeight*4.5;
-            let new_height = window.innerHeight - h;
-            // TODO:
-            // still annoying that this '100' is hardcoded
-            this.container.style.height = Math.max(new_height, 100) + "px";
-        } else {
-            let review = document.getElementById("review")
-            new_width = window.innerWidth - review.offsetWidth - 100;
-            this.container.style.height = this.saved_height + "px";
-        }
-
-        this.container.style.width = new_width + "px";
+        this.container.style.height = Math.max(this.saved_height, 220) + "px";
         this.schedule_render();
     }
 
@@ -191,6 +172,13 @@ class TreeGraphics {
         return -1;
     }
 
+
+    navigation_target(offset) {
+        const position = this.preferred_path.indexOf(this.current_index);
+        if (position === -1) return null;
+        const target = Math.max(0, Math.min(this.preferred_path.length - 1, position + offset));
+        return this.preferred_path[target];
+    }
 
     handle_tree(tree) {
 
@@ -280,6 +268,7 @@ class TreeGraphics {
         // current
         
         if (tree.current != null) {
+            this.current_index = tree.current;
             let cur = this.node_map.get(tree.current);
             this.current = cur;
             this.set_scroll();
@@ -289,6 +278,7 @@ class TreeGraphics {
         // preferred nodes and edges
 
         if (tree.preferred != null) {
+            this.preferred_path = tree.preferred;
             // use this.nodes instead of tree.nodes
             let preferred_edges = [];
             let preferred_grid = new Map();

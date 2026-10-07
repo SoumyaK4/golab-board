@@ -38,6 +38,9 @@ type State struct {
 	clipboard  *tree.TreeNode
 	markedDead coord.CoordSet
 	markedDame coord.CoordSet
+
+	estimate           *board.Estimate
+	ownershipOverrides map[int]color.Color
 }
 
 func (s *State) HeadColor() color.Color {
@@ -102,6 +105,8 @@ func (s *State) Nodes() map[int]*tree.TreeNode {
 func (s *State) AnyMove() {
 	s.markedDead = coord.NewCoordSet()
 	s.markedDame = coord.NewCoordSet()
+	s.estimate = nil
+	s.ownershipOverrides = nil
 }
 
 func (s *State) ToSGF() string {
