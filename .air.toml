@@ -14,7 +14,7 @@ tmp_dir = "tmp"
   follow_symlink = false
   full_bin = ""
   include_dir = ["cmd", "pkg"]
-  include_ext = ["go", "html", "js"]
+  include_ext = ["go", "html", "js", "css"]
   include_file = []
   kill_delay = "0.5s"
   log = "build-errors.log"
@@ -43,9 +43,9 @@ tmp_dir = "tmp"
   clean_on_exit = false
 
 [proxy]
-  app_port = 0
-  enabled = false
-  proxy_port = 0
+  app_port = 8080
+  enabled = true
+  proxy_port = 8081
 
 [screen]
   clear_on_rebuild = false
