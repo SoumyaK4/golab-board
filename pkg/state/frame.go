@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 package state
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -40,8 +41,6 @@ type Frame struct {
 	BlackArea []*coord.Coord `json:"black_area"`
 	WhiteArea []*coord.Coord `json:"white_area"`
 	Dame      []*coord.Coord `json:"dame"`
-
-	Score *ScoreBreakdown `json:"score,omitempty"`
 }
 
 // Marks provides data for any marks on the board
@@ -70,8 +69,12 @@ type Pen struct {
 
 // Metadata provides the size of the board plus any fields (usually from the root node)
 type Metadata struct {
-	Size   int            `json:"size"`
-	Fields []fields.Field `json:"fields"`
+	Size       int            `json:"size"`
+	Fields     []fields.Field `json:"fields"`
+	AutoNumber bool           `json:"autonumber"`
+	// the input buffer belongs to the room, not the state
+	// so it is only filled in by the room (and omitted otherwise)
+	Buffer *int64 `json:"buffer,omitempty"`
 }
 
 // TreeJSONType defines some options for how much data to send in a TreeJSON
@@ -108,11 +111,14 @@ func (s *State) generateMarks() *Marks {
 	if s.current.XY != nil {
 		marks.Current = s.current.XY
 	}
+	// mark values can come from uploaded files, so anything malformed
+	// or off the board is skipped rather than trusted
 	if trs := s.current.GetField("TR"); len(trs) > 0 {
 		cs := coord.NewCoordSet()
 		for _, tr := range trs {
-			c := coord.FromLetters(tr)
-			cs.Add(c)
+			for _, c := range coord.FromPointList(tr, s.size) {
+				cs.Add(c)
+			}
 		}
 		marks.Triangles = cs.List()
 	}
@@ -120,17 +126,23 @@ func (s *State) generateMarks() *Marks {
 	if sqs := s.current.GetField("SQ"); len(sqs) > 0 {
 		cs := coord.NewCoordSet()
 		for _, sq := range sqs {
-			c := coord.FromLetters(sq)
-			cs.Add(c)
+			for _, c := range coord.FromPointList(sq, s.size) {
+				cs.Add(c)
+			}
 		}
 		marks.Squares = cs.List()
 	}
 	if lbs := s.current.GetField("LB"); len(lbs) > 0 {
 		labels := []*Label{}
 		for _, lb := range lbs {
-			spl := strings.SplitN(lb, ":", 2)
-			c := coord.FromLetters(spl[0])
-			text := spl[1]
+			point, text, ok := strings.Cut(lb, ":")
+			if !ok {
+				continue
+			}
+			c := coord.FromLetters(point)
+			if c == nil || !c.Valid(s.size) {
+				continue
+			}
 			label := &Label{Coord: c, Text: text}
 			labels = append(labels, label)
 		}
@@ -152,6 +164,10 @@ func (s *State) generateMarks() *Marks {
 			if hasErr {
 				continue
 			}
+			// NaN and Inf can't be encoded as json
+			if !finite(x0, y0, x1, y1) {
+				continue
+			}
 			pen := &Pen{X0: x0, Y0: y0, X1: x1, Y1: y1, Color: spl[4]}
 			pens = append(pens, pen)
 		}
@@ -162,8 +178,9 @@ func (s *State) generateMarks() *Marks {
 
 func (s *State) generateMetadata() *Metadata {
 	m := &Metadata{
-		Size:   s.size,
-		Fields: s.root.AllFields(),
+		Size:       s.size,
+		Fields:     copyFields(s.root.AllFields()),
+		AutoNumber: s.autoNumber,
 	}
 	return m
 }
@@ -171,9 +188,23 @@ func (s *State) generateMetadata() *Metadata {
 func (s *State) generateComments() []string {
 	cmts := []string{}
 	if c := s.current.GetField("C"); len(c) > 0 {
-		cmts = c
+		cmts = append(cmts, c...)
 	}
 	return cmts
+}
+
+// copyFields deep-copies fs. Frames are serialized after the room lock is
+// released (on each connection's writer goroutine), so they must not share
+// slices with the live tree, which later edits mutate in place.
+func copyFields(fs []fields.Field) []fields.Field {
+	if fs == nil {
+		return nil
+	}
+	out := make([]fields.Field, len(fs))
+	for i, f := range fs {
+		out[i] = fields.Field{Key: f.Key, Values: append([]string(nil), f.Values...)}
+	}
+	return out
 }
 
 func (s *State) GenerateFullFrame(t TreeJSONType) *Frame {
@@ -186,7 +217,7 @@ func (s *State) GenerateFullFrame(t TreeJSONType) *Frame {
 	frame.TreeJSON = s.saveTree(t)
 	frame.BlackCaps = s.current.BlackCaps
 	frame.WhiteCaps = s.current.WhiteCaps
-	return s.withEstimate(frame)
+	return frame
 }
 
 func (s *State) GenerateTreeOnly(t TreeJSONType) *Frame {
@@ -199,16 +230,14 @@ func (s *State) GenerateTreeOnly(t TreeJSONType) *Frame {
 	frame.TreeJSON = s.saveTree(t)
 	frame.BlackCaps = s.current.BlackCaps
 	frame.WhiteCaps = s.current.WhiteCaps
-	return s.withEstimate(frame)
+	return frame
 }
 
-func (s *State) withEstimate(frame *Frame) *Frame {
-	if s.estimate != nil {
-		estimate := s.scoreFrame()
-		frame.Score = estimate.Score
-		frame.BlackCaps, frame.WhiteCaps = estimate.BlackCaps, estimate.WhiteCaps
-		frame.BlackArea, frame.WhiteArea, frame.Dame = estimate.BlackArea, estimate.WhiteArea, estimate.Dame
-		frame.Marks = nil
+func finite(fs ...float64) bool {
+	for _, f := range fs {
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return false
+		}
 	}
-	return frame
+	return true
 }

@@ -15,16 +15,22 @@ import (
 	"strings"
 )
 
+// MaxNesting caps how deeply branches can nest; parseBranch recurses once
+// per level, and a deep enough input would overflow the stack, which
+// kills the whole process
+const MaxNesting = 10_000
+
 type SGFParser struct {
 	*BaseParser
+	depth int
 }
 
 func NewSGFParser(text string) *SGFParser {
-	return &SGFParser{&BaseParser{[]rune(text), 0}}
+	return &SGFParser{BaseParser: &BaseParser{[]rune(text), 0}}
 }
 
 func SGFParserFrom(p *BaseParser) *SGFParser {
-	return &SGFParser{p}
+	return &SGFParser{BaseParser: p}
 }
 
 func (p *SGFParser) Parse() (*SGFNode, error) {
@@ -80,8 +86,20 @@ func (p *SGFParser) parseField() (string, error) {
 			return "", fmt.Errorf("bad field")
 		} else if t == ']' {
 			break
-		} else if t == '\\' && p.peek(0) == ']' {
+		} else if t == '\\' {
+			// per the sgf spec, a backslash escapes the next character
+			// and a backslash before a newline is a soft line break
 			t = p.read()
+			if t == 0 {
+				return "", fmt.Errorf("bad field")
+			}
+			if t == '\r' && p.peek(0) == '\n' {
+				p.read()
+				continue
+			}
+			if t == '\n' || t == '\r' {
+				continue
+			}
 		}
 		sb.WriteRune(t)
 	}
@@ -212,6 +230,12 @@ func (p *SGFParser) parseNode() (*SGFNode, error) {
 }
 
 func (p *SGFParser) parseBranch() (*SGFNode, error) {
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > MaxNesting {
+		return nil, fmt.Errorf("branches nested too deeply (max %d)", MaxNesting)
+	}
+
 	// read '('
 	err := p.requireRune('(')
 	if err != nil {

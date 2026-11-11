@@ -201,7 +201,7 @@ func TestNGF2(t *testing.T) {
 	require.NoError(t, err)
 	node, err := r.ToSGFNode()
 	require.NoError(t, err)
-	t.Logf("%v", node.toSGF(true))
+	t.Logf("%v", node.toSGF())
 }
 
 func TestNGFErrors(t *testing.T) {
@@ -248,4 +248,12 @@ func TestNGFRegression4(t *testing.T) {
 	p := NewNGFParser("Rated game\r\n19\r\nwhite       3D?\r\nblack       3D*\r\nwww.cyberoro.com\r\n0\r\n0\r\n6\r\n20260106 [14:47]\r\n4\r\nWhite wins by  time!\r\n2\r\nPMABBEQQE\r\nPMACWQQQQ")
 	_, err := p.Parse()
 	require.NoError(t, err)
+}
+
+func TestNGFMoveBadColor(t *testing.T) {
+	for _, s := range []string{"PMAB[QRRQ\n", "PMABXQRRQ\n", "PMABbQRRQ\n"} {
+		p := NewNGFParser(s)
+		_, err := p.parseMove(19)
+		assert.NotNil(t, err)
+	}
 }

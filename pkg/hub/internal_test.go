@@ -12,6 +12,9 @@ package hub
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,9 +23,18 @@ import (
 	"github.com/golab/board/internal/assert"
 	"github.com/golab/board/internal/twitch"
 	"github.com/golab/board/pkg/config"
+	"github.com/golab/board/pkg/event"
 	"github.com/golab/board/pkg/loader"
 	"github.com/golab/board/pkg/logx"
 )
+
+// signTwitchReq sets the Twitch EventSub signature header for body. The id and
+// timestamp headers are left empty, so the signed message is exactly the body.
+func signTwitchReq(req *http.Request, secret string, body []byte) {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	req.Header.Set("Twitch-Eventsub-Message-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+}
 
 func TestTwitchCallbackSubscribe(t *testing.T) {
 	logger := logx.NewRecorder(logx.LogLevelInfo)
@@ -90,7 +102,9 @@ func TestTwitchCallbackUnsubscribe(t *testing.T) {
 
 func TestTwitchCallbackPost1(t *testing.T) {
 	logger := logx.NewRecorder(logx.LogLevelInfo)
-	h, err := NewHubWithDB(loader.NewMemoryLoader(), config.Test(), logger)
+	cfg := config.Test()
+	cfg.Twitch.Secret = "test-secret"
+	h, err := NewHubWithDB(loader.NewMemoryLoader(), cfg, logger)
 	assert.NoError(t, err)
 
 	rec := httptest.NewRecorder()
@@ -99,6 +113,7 @@ func TestTwitchCallbackPost1(t *testing.T) {
 
 	body := []byte(`{"subscription": {"id": "sub123"}, "event": {"broadcaster_user_id": "broadcaster123", "chatter_user_id": "broadcaster123", "message": {"text": "!setboard abc"}}}`)
 	req := httptest.NewRequest("POST", "/callback", bytes.NewBuffer(body))
+	signTwitchReq(req, cfg.Twitch.Secret, body)
 	r.ServeHTTP(rec, req)
 
 	roomID := h.db.TwitchGetRoom("broadcaster123")
@@ -107,7 +122,9 @@ func TestTwitchCallbackPost1(t *testing.T) {
 
 func TestTwitchCallbackPost2(t *testing.T) {
 	logger := logx.NewRecorder(logx.LogLevelInfo)
-	h, err := NewHubWithDB(loader.NewMemoryLoader(), config.Test(), logger)
+	cfg := config.Test()
+	cfg.Twitch.Secret = "test-secret"
+	h, err := NewHubWithDB(loader.NewMemoryLoader(), cfg, logger)
 	assert.NoError(t, err)
 
 	rec := httptest.NewRecorder()
@@ -116,6 +133,7 @@ func TestTwitchCallbackPost2(t *testing.T) {
 
 	body := []byte(`{"subscription": {"id": "sub123"}, "event": {"broadcaster_user_id": "broadcaster123", "chatter_user_id": "broadcaster123", "message": {"text": "!setboard abc"}}}`)
 	req := httptest.NewRequest("POST", "/callback", bytes.NewBuffer(body))
+	signTwitchReq(req, cfg.Twitch.Secret, body)
 	r.ServeHTTP(rec, req)
 
 	roomID := h.db.TwitchGetRoom("broadcaster123")
@@ -123,6 +141,7 @@ func TestTwitchCallbackPost2(t *testing.T) {
 
 	body = []byte(`{"subscription": {"id": "sub123"}, "event": {"broadcaster_user_id": "broadcaster123", "chatter_user_id": "chatter123", "message": {"text": "!branch e10 e9 e8 e7"}}}`)
 	req = httptest.NewRequest("POST", "/callback", bytes.NewBuffer(body))
+	signTwitchReq(req, cfg.Twitch.Secret, body)
 	r.ServeHTTP(rec, req)
 
 	room, err := h.GetRoom(roomID)
@@ -152,4 +171,46 @@ func TestHeartbeat(t *testing.T) {
 	// room shouldn't exist
 	_, err = h.GetRoom(roomID)
 	assert.NotNil(t, err)
+}
+
+// a room with a connected user is not evicted, even when its last activity is
+// older than the timeout
+func TestHeartbeatKeepsWatchedRoom(t *testing.T) {
+	logger := logx.NewRecorder(logx.LogLevelDebug)
+	h, err := NewHubWithDB(loader.NewMemoryLoader(), config.Default(), logger)
+	assert.NoError(t, err)
+
+	h.heartbeatInterval = 0.01
+	roomID := "watched"
+	r := h.GetOrCreateRoom(roomID)
+	r.SetTimeout(0.02)
+
+	// a live connection should keep the room alive past the timeout
+	r.RegisterConnection(event.NewMockEventChannel())
+
+	time.Sleep(time.Duration(0.05 * float64(time.Second)))
+
+	_, err = h.GetRoom(roomID)
+	assert.NoError(t, err)
+}
+
+// a user who has just been handed an idle room by GetOrCreateRoom, but hasn't
+// registered their connection yet, must not have that room evicted out from
+// under them
+func TestEvictSkipsRoomJustHandedOut(t *testing.T) {
+	h, err := NewHubWithDB(loader.NewMemoryLoader(), config.Default(), logx.NewRecorder(logx.LogLevelInfo))
+	assert.NoError(t, err)
+
+	roomID := "joining"
+	r := h.GetOrCreateRoom(roomID)
+	r.SetTimeout(60)
+	old := time.Now().Add(-time.Hour)
+	r.SetLastActive(&old)
+
+	// a new user arrives: same room comes back, connection not yet registered
+	assert.Equal(t, h.GetOrCreateRoom(roomID), r)
+
+	assert.False(t, h.evictIfIdle(roomID, r))
+	_, err = h.GetRoom(roomID)
+	assert.NoError(t, err)
 }

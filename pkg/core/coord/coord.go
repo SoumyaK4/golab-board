@@ -39,8 +39,11 @@ func (cs CoordSet) Has(c *Coord) bool {
 	return ok
 }
 
-// Add adds a coord to the set
+// Add adds a coord to the set (nil coords are ignored)
 func (cs CoordSet) Add(c *Coord) {
+	if c == nil {
+		return
+	}
 	cs[c.Index()] = c
 }
 
@@ -229,6 +232,38 @@ func FromLetters(s string) *Coord {
 	return NewCoord(int(t[0]-97), int(t[1]-97))
 }
 
+// FromPointList parses an sgf point value, which is either a single point
+// ("cd") or a compressed rectangle of points ("aa:cc")
+// anything malformed or off a board of the given size is dropped
+func FromPointList(s string, size int) []*Coord {
+	onBoard := func(c *Coord) bool {
+		return c != nil && c.Valid(size)
+	}
+
+	first, last, compressed := strings.Cut(s, ":")
+	if !compressed {
+		c := FromLetters(first)
+		if !onBoard(c) {
+			return nil
+		}
+		return []*Coord{c}
+	}
+
+	a := FromLetters(first)
+	b := FromLetters(last)
+	if !onBoard(a) || !onBoard(b) {
+		return nil
+	}
+
+	coords := []*Coord{}
+	for x := min(a.X, b.X); x <= max(a.X, b.X); x++ {
+		for y := min(a.Y, b.Y); y <= max(a.Y, b.Y); y++ {
+			coords = append(coords, NewCoord(x, y))
+		}
+	}
+	return coords
+}
+
 // InterfaceToCoord essentially coerces the interface into a [2]int
 // then turns that into a Coord
 func FromInterface(ifc any) (*Coord, error) {
@@ -245,13 +280,20 @@ func FromInterface(ifc any) (*Coord, error) {
 		return nil, fmt.Errorf("error coercing to coord: not enough values")
 	}
 
-	for _, v := range val {
-		i := int(v.(float64))
-		coords = append(coords, i)
+	for _, v := range val[:2] {
+		f, ok := v.(float64)
+		if !ok {
+			return nil, fmt.Errorf("error coercing to coord: values should be numbers")
+		}
+		coords = append(coords, int(f))
 	}
 	x := coords[0]
 	y := coords[1]
-	return NewCoord(x, y), nil
+	c := NewCoord(x, y)
+	if c == nil {
+		return nil, fmt.Errorf("error coercing to coord: off the board")
+	}
+	return c, nil
 }
 
 // Stone is a Coord plus a Color
@@ -294,6 +336,9 @@ func FromAlphanumeric(s string, size int) (*Coord, error) {
 		x = int(letter - 'a')
 	} else {
 		x = int(letter - 'a' - 1)
+	}
+	if x >= size {
+		return nil, fmt.Errorf("bad character: %c", letter)
 	}
 
 	return NewCoord(x, y), nil

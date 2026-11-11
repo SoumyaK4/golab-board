@@ -23,8 +23,6 @@ import (
 	"github.com/golab/board/pkg/core/tree"
 )
 
-const Letters = "ABCDEFGHIJKLNMOPQRSTUVWXYZ"
-
 // as a rule, anything that would need to get sent to new connections
 // should be stored here
 type State struct {
@@ -38,9 +36,7 @@ type State struct {
 	clipboard  *tree.TreeNode
 	markedDead coord.CoordSet
 	markedDame coord.CoordSet
-
-	estimate           *board.Estimate
-	ownershipOverrides map[int]color.Color
+	autoNumber bool
 }
 
 func (s *State) HeadColor() color.Color {
@@ -56,8 +52,41 @@ func (s *State) GetColorAt(t int) color.Color {
 	return Color(node)
 }
 
+// SetNextIndex never lowers the counter below an index already in use
 func (s *State) SetNextIndex(i int) {
-	s.nextIndex = i
+	s.nextIndex = max(i, s.nextIndex)
+}
+
+// claimIndex picks the index for a new node: the requested one (e.g. from
+// an sgf IX field) if it's usable, otherwise the next free index
+// duplicate or negative IX values would otherwise corrupt the nodes map
+func (s *State) claimIndex(requested int) int {
+	if requested >= 0 {
+		if _, taken := s.nodes[requested]; !taken {
+			s.nextIndex = max(s.nextIndex, requested+1)
+			return requested
+		}
+	}
+	for {
+		i := s.GetNextIndex()
+		if _, taken := s.nodes[i]; !taken {
+			return i
+		}
+	}
+}
+
+// MaxNodes caps the size of a game tree, whether uploaded or built up by
+// editing (copy and paste can otherwise double a tree with every click)
+const MaxNodes = 100_000
+
+var ErrTooManyNodes = fmt.Errorf("the game tree is too large (max %d moves)", MaxNodes)
+
+// checkCapacity reports whether n more nodes fit in the tree
+func (s *State) checkCapacity(n int) error {
+	if len(s.nodes)+n > MaxNodes {
+		return ErrTooManyNodes
+	}
+	return nil
 }
 
 func (s *State) GetNextIndex() int {
@@ -105,8 +134,6 @@ func (s *State) Nodes() map[int]*tree.TreeNode {
 func (s *State) AnyMove() {
 	s.markedDead = coord.NewCoordSet()
 	s.markedDame = coord.NewCoordSet()
-	s.estimate = nil
-	s.ownershipOverrides = nil
 }
 
 func (s *State) ToSGF() string {
@@ -146,9 +173,8 @@ func (s *State) toSGF(indexes bool) string {
 			}
 			sb.WriteString(key)
 			for _, fieldValue := range multifield {
-				m := strings.ReplaceAll(fieldValue, "]", "\\]")
 				sb.WriteByte('[')
-				sb.WriteString(m)
+				sb.WriteString(parser.EscapeValue(fieldValue))
 				sb.WriteByte(']')
 			}
 
@@ -198,7 +224,7 @@ func FromSGF(data string) (*State, error) {
 			return nil, err
 		}
 	}
-	if int(size) > 19 {
+	if size < 1 || size > 19 {
 		return nil, fmt.Errorf("unsupported board size")
 	}
 
@@ -217,6 +243,9 @@ func FromSGF(data string) (*State, error) {
 			node := cur.(*parser.SGFNode)
 			if node == nil {
 				return nil, fmt.Errorf("parsing didn't produce a valid tree")
+			}
+			if err := state.checkCapacity(1); err != nil {
+				return nil, err
 			}
 
 			index := -1

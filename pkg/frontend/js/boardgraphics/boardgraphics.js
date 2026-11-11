@@ -188,6 +188,12 @@ class BoardGraphics {
 
         let review = document.getElementById("review");
 
+        // keep the svg layers' z-indexes local to the board
+        // otherwise the transparent top layers sit above things that
+        // overlap the board (e.g. the collapsed button dropdown)
+        // and swallow their clicks
+        review.style.isolation = "isolate";
+
         this.size = this.state.size;
         this.width = parseInt(review.offsetHeight)*(this.size-1)/(this.size+1);
         this.side = this.width/(this.size-1);
@@ -513,7 +519,7 @@ class BoardGraphics {
         }
         text.style.fontSize = font_size + "px";
         text.style.fill = color;
-        text.innerHTML = txt;
+        text.textContent = txt;
         //text.setAttributeNS(null, "id", text_id);
         text.style.cursor = "default";
         text.style.userSelect = "none";
@@ -537,7 +543,7 @@ class BoardGraphics {
         }
         text.style.fontSize = font_size + "px";
         text.style.fill = color;
-        text.innerHTML = txt;
+        text.textContent = txt;
         //text.setAttributeNS(null, "id", text_id);
         text.style.cursor = "default";
         text.style.userSelect = "none";
@@ -763,7 +769,7 @@ class BoardGraphics {
             color = this.state.black_stone_color;
         }
         let id = "marks";
-        return this.draw_filled_square(x, y, color, id, this.score_strength(x, y));
+        return this.draw_filled_square(x, y, color, id);
     }
 
     draw_white_area(x, y) {
@@ -772,21 +778,17 @@ class BoardGraphics {
         if (this.state.white_stone_color.startsWith("#")) {
             color = this.state.white_stone_color;
         }
-        return this.draw_filled_square(x, y, color, id, this.score_strength(x, y));
+        return this.draw_filled_square(x, y, color, id);
     }
 
-    score_strength(x, y) {
-        const confidence = this.state.score?.confidence[y * this.size + x];
-        return confidence == null ? 1 : Math.max(0.1, Math.min(1, Math.abs(confidence)));
-    }
-
-    draw_filled_square(x, y, hexColor, id, strength = 1) {
+    draw_filled_square(x, y, hexColor, id) {
         if (x < 0 || x >= this.size || y < 0 || y >= this.size) {
             return;
         }
 
         let [real_x, real_y] = this.real_coord(x, y);
-        let b = this.side * 0.4 * strength;
+        let r = (this.side/3);
+        let b = r;
         let rect = document.createElementNS(this.svgns, "rect");
         rect.setAttribute("width", b);
         rect.setAttribute("height", b);
@@ -858,6 +860,8 @@ class BoardGraphics {
             stars.push([6,2]);
             stars.push([6,6]);
             stars.push([4,4]);
+        } else if (this.size == 7) {
+            stars.push([3,3]);
         }
         for (let [x,y] of stars) {
             this.draw_star(x,y);
@@ -1196,6 +1200,9 @@ class BoardGraphics {
     remove_mark(x, y) {
         let id = this.make_id("", x, y);
         let mark = this.state.marks.get(id);
+        if (mark == null) {
+            return;
+        }
         this.state.marks.delete(id);
         this.clear_mark(x, y);
         let spl = mark.split(":");

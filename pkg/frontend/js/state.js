@@ -12,7 +12,6 @@ import { create_board } from './board.js';
 import { BoardGraphics } from './boardgraphics/boardgraphics.js';
 import { TreeGraphics } from './treegraphics.js';
 
-import { render_score } from './score.js';
 import { create_comments } from './comments.js';
 import { create_layout } from './layout.js';
 import { create_buttons } from './buttons.js';
@@ -51,7 +50,7 @@ function b64_encode_unicode(str) {
 class State {
     constructor() {
         window.addEventListener("resize", (event) => this.resize(event));
-        this.layout = create_layout();
+        create_layout();
         create_dropzone((files) => this.upload_files(files));
         this.compute_consts();
         this.color = 1;
@@ -60,6 +59,7 @@ class State {
         this.mark = "";
         this.input_buffer = 250;
         this.password = "";
+        this.autonumber = false;
 
         // pen variables
         this.pen_color = "#48BBFF";
@@ -70,7 +70,6 @@ class State {
         this.keys_down = new Map();
 
         this.branch_jump = true;
-        this.wheel_navigation = true;
 
         this.dark_mode = false;
         //this.board = new Board(this.size);
@@ -96,8 +95,8 @@ class State {
 
         this.board_graphics.draw_board();
 
-        create_buttons(this);
-        this.update_tool_selection();
+        this.buttons = create_buttons(this);
+        this.buttons.highlight_tool("toggle");
 
         this.modals = create_modals(this);
 
@@ -192,16 +191,27 @@ class State {
             this.reset();
         }
         this.password = settings["password"];
+        if (settings["autonumber"] != null) {
+            this.autonumber = settings["autonumber"];
+        }
         this.modals.update_settings_modal();
     }
 
     resize(event) {
-        this.layout.resize();
+        let content = document.getElementById("content");
+        let arrows = document.getElementById("arrows");
+        let h = arrows.offsetHeight*4.5;
+        let new_width = Math.min(window.innerHeight*1.5 - h, window.innerWidth);
+        content.style.width = new_width + "px";
+
         this.recompute_consts();
         this.board_graphics.resize();
         this.tree_graphics.resize();
+        this.comments.resize();
         this.apply_pen();
         resize_dropzone();
+        // it's a little hacky, but the buttons were being very annoying
+        setTimeout(() => this.buttons.resize(), 100);
     }
 
     get_index_up() {
@@ -270,14 +280,12 @@ class State {
     }
 
     reset() {
-        this.score = null;
-        render_score(null);
         this.board_graphics.clear_and_remove();
         this.handicap = false;
         this.color = 1;
         this.toggling = true;
         this.mark = "";
-        this.update_tool_selection();
+        this.buttons.highlight_tool("toggle");
 
         //this.board = new Board(this.size);
         this.board = create_board(this.size);
@@ -393,6 +401,7 @@ class State {
     compute_consts() {
         let review = document.getElementById("review");
         let size = parseInt(review.getAttribute("size"));
+        let arrows = document.getElementById("arrows");
 
         // this is the number of "squares" across the board, including margins
         let n = size+1;
@@ -404,6 +413,7 @@ class State {
         // this is not very elegant
         let w = this.width + this.pad*2;
         review.style.height = w + "px";
+        arrows.style.width = w + "px";
     }
 
 
@@ -436,6 +446,9 @@ class State {
 
         // change the setting
         this.dark_mode = new_setting;
+
+        // change the background
+        document.body.style.background = bg_color;
 
         // change the buttons
         let buttons = document.querySelectorAll("button");
@@ -509,47 +522,39 @@ class State {
         return num.innerHTML;
     }
 
-    update_tool_selection() {
-        const selected = this.mark || (this.toggling ? "toggle" : this.color === 1 ? "black" : "white");
-        for (const button of document.querySelectorAll("[data-tool]")) {
-            button.setAttribute("aria-pressed", String(button.dataset.tool === selected));
-        }
-    }
-
     set_black() {
         this.color = 1;
         this.toggling = false;
         this.mark = "";
+        this.buttons.highlight_tool("black");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     set_white() {
         this.color = 2;
         this.toggling = false;
         this.mark = "";
+        this.buttons.highlight_tool("white");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     set_toggle() {
         this.toggling = true;
         this.update_color();
         this.mark = "";
+        this.buttons.highlight_tool("toggle");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     set_eraser() {
         this.mark = "eraser";
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     set_pen() {
         this.mark = "pen";
+        this.buttons.highlight_tool("pen");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     draw_pen(x0, y0, x1, y1, pen_color) {
@@ -613,32 +618,33 @@ class State {
 
    set_triangle() {
         this.mark = "triangle";
+        this.buttons.highlight_tool("triangle");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     set_square() {
         this.mark = "square";
+        this.buttons.highlight_tool("square");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     set_letter() {
         this.mark = "letter";
         this.custom_label = "";
+        this.buttons.highlight_tool("letter");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     set_number() {
         this.mark = "number";
+        this.buttons.highlight_tool("number");
         this.board_graphics.clear_ghosts();
-        this.update_tool_selection();
     }
 
     trigger_score() {
-        this.board_graphics.clear_ghosts();
-        this.network_handler.prepare_score();
+        this.mark = "score";
+        this.buttons.highlight_tool("score");
+        this.network_handler.prepare_score()
     }
 
     upload_one_file(f) {
@@ -829,11 +835,6 @@ class State {
         }
 
         //////// scoring logic
-        this.score = frame.score ?? null;
-        render_score(this.score);
-        if (this.score) this.mark = "score";
-        else if (this.mark === "score") this.mark = "";
-        this.update_tool_selection();
 
         if (frame.black_caps != null) {
             this.set_black_caps(frame.black_caps);
@@ -979,6 +980,12 @@ class State {
             this.board_graphics.reset_board();
             this.reset();
         }
+        if (metadata.autonumber != null) {
+            this.autonumber = metadata.autonumber;
+        }
+        if (metadata.buffer != null) {
+            this.input_buffer = metadata.buffer;
+        }
         this.set_gameinfo(metadata.fields);
         this.modals.update_modals();
     }
@@ -1033,11 +1040,13 @@ class State {
         let coord = lb.coord
         let id = coordtoid(coord);
 
-        let i = parseInt(lb.text);
-        if (Number.isInteger(i)) {
-            this.marks.set(id, "number:" + lb.text);
+        // only treat the label as a number if it is entirely digits
+        // (parseInt would accept "1<anything>")
+        if (/^[0-9]+$/.test(lb.text)) {
+            let i = parseInt(lb.text);
+            this.marks.set(id, "number:" + i);
             this.numbers.set(i, 1);
-            this.board_graphics._draw_manual_number(coord.x, coord.y, lb.text);
+            this.board_graphics._draw_manual_number(coord.x, coord.y, String(i));
             return;
         }
 

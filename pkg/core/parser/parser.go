@@ -48,37 +48,45 @@ func (n *SGFNode) NumChildren() int {
 	return len(n.down)
 }
 
-func (n *SGFNode) toSGF(root bool) string {
+// toSGF writes the whole tree into one builder with an explicit stack:
+// recursing per node (and copying each subtree's string into its parent's)
+// was quadratic and could overflow the stack on long games
+func (n *SGFNode) toSGF() string {
 	sb := strings.Builder{}
-	if root {
-		sb.WriteByte('(')
-	}
-	sb.WriteByte(';')
-
-	n.SortFields()
-
-	for _, field := range n.AllFields() {
-		sb.WriteString(field.Key)
-		for _, value := range field.Values {
-			sb.WriteByte('[')
-			m := strings.ReplaceAll(value, "]", "\\]")
-			sb.WriteString(m)
-			sb.WriteByte(']')
+	sb.WriteByte('(')
+	stack := []any{n}
+	for len(stack) > 0 {
+		i := len(stack) - 1
+		cur := stack[i]
+		stack = stack[:i]
+		if str, ok := cur.(string); ok {
+			sb.WriteString(str)
+			continue
 		}
-	}
+		node := cur.(*SGFNode)
+		sb.WriteByte(';')
 
-	for _, d := range n.down {
-		if len(n.down) > 1 {
-			sb.WriteByte('(')
-			sb.WriteString(d.toSGF(false))
-			sb.WriteByte(')')
+		node.SortFields()
+
+		for _, field := range node.AllFields() {
+			sb.WriteString(field.Key)
+			for _, value := range field.Values {
+				sb.WriteByte('[')
+				sb.WriteString(EscapeValue(value))
+				sb.WriteByte(']')
+			}
+		}
+
+		if len(node.down) == 1 {
+			stack = append(stack, node.down[0])
 		} else {
-			sb.WriteString(d.toSGF(false))
+			// go backward through array
+			for i := len(node.down) - 1; i >= 0; i-- {
+				stack = append(stack, ")", node.down[i], "(")
+			}
 		}
 	}
-	if root {
-		sb.WriteByte(')')
-	}
+	sb.WriteByte(')')
 	return sb.String()
 }
 
@@ -228,5 +236,13 @@ func Merge(sgfs []string) string {
 	}
 
 	newRoot.AddField("SZ", size)
-	return newRoot.toSGF(true)
+	return newRoot.toSGF()
+}
+
+var valueEscaper = strings.NewReplacer(`\`, `\\`, `]`, `\]`)
+
+// EscapeValue escapes a property value so it can be placed between
+// '[' and ']' in an sgf and read back unchanged
+func EscapeValue(v string) string {
+	return valueEscaper.Replace(v)
 }

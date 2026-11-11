@@ -11,12 +11,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/golab/board/pkg/app"
 	"github.com/golab/board/pkg/config"
@@ -65,22 +68,49 @@ func main() {
 	port := cfg.Server.Port
 	url := fmt.Sprintf("%s:%d", host, port)
 
+	// explicit server with timeouts: ReadHeaderTimeout and IdleTimeout guard
+	// against Slowloris and idle keep-alives. ReadTimeout/WriteTimeout are
+	// deliberately left unset so long-lived websocket connections aren't
+	// severed.
+	server := &http.Server{
+		Addr:              url,
+		Handler:           a.Router,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
 	// get ready to catch signals
 	cancelChan := make(chan os.Signal, 1)
 
 	// catch SIGETRM or SIGINTERRUPT
 	signal.Notify(cancelChan, syscall.SIGTERM, syscall.SIGINT)
 
-	// run server
+	// run server; a failure to listen (e.g. port in use) is reported back
+	// so the process exits instead of idling with nothing serving
+	serveErr := make(chan error, 1)
 	go func() {
 		logger.Info("listening on", "url", url)
-		err = http.ListenAndServe(url, a.Router)
-		logger.Error("error listening", "err", err)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+		}
 	}()
 
-	// catch cancel signal
-	sig := <-cancelChan
+	// wait for a cancel signal or a server failure
+	select {
+	case sig := <-cancelChan:
+		logger.Info("caught signal", "signal", fmt.Sprintf("%v", sig))
+	case err := <-serveErr:
+		// still return normally so the deferred save runs
+		logger.Error("error listening", "err", err)
+		return
+	}
 
-	logger.Info("caught signal", "signal", fmt.Sprintf("%v", sig))
 	logger.Info("shutting down gracefully")
+
+	// stop accepting new connections and let in-flight requests finish
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("error during shutdown", "err", err)
+	}
 }

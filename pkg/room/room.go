@@ -48,6 +48,7 @@ type Room struct {
 	inputBuffer  int64
 	userBuffer   int64
 	timeout      float64
+	autoNumber   bool
 	logger       logx.Logger
 	mu           sync.Mutex
 }
@@ -110,6 +111,7 @@ func Load(load *loader.LoadJSON) (*Room, error) {
 	r.SetPassword(load.Password)
 	r.SetInputBuffer(load.Buffer)
 	r.SetState(st)
+	r.SetAutoNumber(load.AutoNumber)
 
 	return r, nil
 }
@@ -234,10 +236,17 @@ func (r *Room) SetTimeout(f float64) {
 	r.timeout = f
 }
 
+// Nicks returns a snapshot copy of the connection-id to nickname map. A copy
+// (rather than the internal map) means callers can read it without the room
+// lock and without racing concurrent SetNick/connect/disconnect mutations.
 func (r *Room) Nicks() map[string]string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.nicks
+	cp := make(map[string]string, len(r.nicks))
+	for k, v := range r.nicks {
+		cp[k] = v
+	}
+	return cp
 }
 
 func (r *Room) GetNick(user string) (string, bool) {
@@ -269,6 +278,7 @@ func (r *Room) Save() *loader.LoadJSON {
 	// add on last fields owned by the room instead of the state
 	save.Password = r.password
 	save.Buffer = r.inputBuffer
+	save.AutoNumber = r.autoNumber
 	save.ID = r.id
 	return save
 }
@@ -299,7 +309,22 @@ func (r *Room) GetState() *state.State {
 func (r *Room) SetState(s *state.State) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// auto-numbering is a room setting, so it carries over to new states
+	s.SetAutoNumber(r.autoNumber)
 	r.state = s
+}
+
+func (r *Room) GetAutoNumber() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.autoNumber
+}
+
+func (r *Room) SetAutoNumber(b bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.autoNumber = b
+	r.state.SetAutoNumber(b)
 }
 
 func (r *Room) SetConnector(key string, c Connector) {
@@ -411,8 +436,9 @@ func (r *Room) DisableBuffers() {
 }
 
 func (r *Room) SendUserList() {
-	// send list of currently connected users
-	evt := event.NewEvent("connected_users", r.nicks)
+	// send list of currently connected users; Nicks() returns a private copy
+	// so the event doesn't share the room's map with concurrent mutations
+	evt := event.NewEvent("connected_users", r.Nicks())
 
 	r.Broadcast(evt)
 }
@@ -498,8 +524,11 @@ func (room *Room) GetHandler(t string) EventHandler {
 func (r *Room) RegisterPlugin(p plugin.Plugin, args map[string]any) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := args["key"].(string)
+	key, _ := args["key"].(string)
 	r.logger.Info("registering plugin", "room_id", r.id, "plugin_key", key)
+	if lp, ok := p.(interface{ SetLogger(logx.Logger) }); ok && r.logger != nil {
+		lp.SetLogger(r.logger)
+	}
 	p.Start(args)
 	r.plugins[key] = p
 }
@@ -546,7 +575,11 @@ func (r *Room) Size() int {
 func (r *Room) GenerateFullFrame(t state.TreeJSONType) *state.Frame {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.state.GenerateFullFrame(t)
+	frame := r.state.GenerateFullFrame(t)
+	// include room settings so new connections see the current values
+	buffer := r.inputBuffer
+	frame.Metadata.Buffer = &buffer
+	return frame
 }
 
 func (r *Room) GenerateTreeOnly(t state.TreeJSONType) *state.Frame {

@@ -147,6 +147,7 @@ function make_settings() {
     let black = document.getElementById(id + "-blackplayer-bar").value;
     let white = document.getElementById(id + "-whiteplayer-bar").value;
     let komi = document.getElementById(id + "-komi-bar").value;
+    let autonumber = document.getElementById(id + "-autonumber-switch").checked;
     return {
         "buffer": buffer,
         "size": size,
@@ -154,7 +155,8 @@ function make_settings() {
         "nickname": nickname,
         "black": black,
         "white": white,
-        "komi": komi};
+        "komi": komi,
+        "autonumber": autonumber};
 }
 
 function gameinfo_settings(state) {
@@ -238,7 +240,7 @@ function gameinfo_settings(state) {
     let size_select = document.createElement("select");
     size_select.setAttribute("id", id + "-size-select");
     size_select.setAttribute("class", "form-select");
-    for (let x of ["9", "13", "19"]) {
+    for (let x of ["7", "9", "13", "19"]) {
         let opt = document.createElement("option");
         opt.setAttribute("value", x);
         opt.innerHTML = x;
@@ -669,23 +671,6 @@ function behavior_settings(state) {
     behavior_collapse.classList.add("collapse");
     behavior_collapse.id = "behavior-collapse";
 
-    const wheel_setting = document.createElement("div");
-    wheel_setting.className = "mb-3";
-    wheel_setting.innerHTML = `
-        <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" role="switch" id="wheel-navigation-switch" aria-describedby="wheel-navigation-help">
-            <label class="form-check-label" for="wheel-navigation-switch">Mouse-wheel navigation</label>
-        </div>
-        <p class="small text-body-secondary mb-0" id="wheel-navigation-help">Over the board or game tree: scroll down to go forward, up to go back. Hold Shift to jump 10 moves, or Ctrl to jump to the start/end. Follows the selected variation.</p>`;
-    const wheel_switch = wheel_setting.querySelector("input");
-    state.wheel_navigation = localStorage.getItem("wheel_navigation") !== "false";
-    wheel_switch.checked = state.wheel_navigation;
-    wheel_switch.addEventListener("change", () => {
-        state.wheel_navigation = wheel_switch.checked;
-        localStorage.setItem("wheel_navigation", String(wheel_switch.checked));
-    });
-    behavior_collapse.appendChild(wheel_setting);
-
     // up/down toggle
     let updown_element = document.createElement("div");
     updown_element.innerHTML = "Up/Down Keys "
@@ -743,6 +728,31 @@ function behavior_settings(state) {
     updown_element.append(d);
 
     behavior_collapse.appendChild(updown_element);
+    behavior_collapse.appendChild(document.createElement("br"));
+
+    // auto-number branches
+    let autonumber_element = document.createElement("div");
+    autonumber_element.innerHTML = "Auto-number Branches "
+
+    let autonumber_icon = document.createElement("i");
+    autonumber_icon.setAttribute("class", "bi-question-circle");
+    add_tooltip(autonumber_icon, "When a move is played off the main branch, number the moves of the variation starting from 1");
+    autonumber_element.appendChild(autonumber_icon);
+
+    let autonumber_div = document.createElement("div");
+    autonumber_div.setAttribute("class", "form-check form-switch");
+
+    let autonumber_switch = document.createElement("input");
+    autonumber_switch.setAttribute("class", "form-check-input");
+    autonumber_switch.setAttribute("type", "checkbox");
+    autonumber_switch.setAttribute("role", "switch");
+    autonumber_switch.checked = state.autonumber;
+    autonumber_switch.setAttribute("id", id + "-autonumber-switch");
+
+    autonumber_div.appendChild(autonumber_switch);
+    autonumber_element.append(autonumber_div);
+
+    behavior_collapse.appendChild(autonumber_element);
     behavior_collapse.appendChild(document.createElement("br"));
 
 

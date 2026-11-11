@@ -106,7 +106,7 @@ export function create_modals(_state) {
 
         let body = document.createElement("div");
         body.setAttribute("class", "toast-body");
-        body.innerHTML = body_text;
+        body.textContent = body_text;
         flex.appendChild(body);
     
         let close = document.createElement("button");
@@ -159,6 +159,9 @@ export function create_modals(_state) {
         let select = document.getElementById(id + "-size-select");
         select.value = state.size;
 
+        let autonumber = document.getElementById(id + "-autonumber-switch");
+        autonumber.checked = state.autonumber;
+
         let password = state.password;
         if (password == "") {
             remove_password();
@@ -179,10 +182,12 @@ export function create_modals(_state) {
     }
 
     function show_error_modal(message) {
+        // message can contain user input (e.g. from an uploaded file)
+        // so it must only ever be inserted as text
         let span = document.getElementById("error-modal-message");
-        span.innerHTML = "&nbsp;" + message;
+        span.textContent = "\u00a0" + message;
         span.appendChild(document.createElement("br"));
-        span.innerHTML += "Consider making a bug report on ";
+        span.appendChild(document.createTextNode("Consider making a bug report on "));
 
         let anchor1 = document.createElement("a");
         anchor1.setAttribute("href", "https://discord.gg/tUKtEXPE");
@@ -192,7 +197,7 @@ export function create_modals(_state) {
         span.appendChild(anchor1);
 
         span.appendChild(document.createElement("br"));
-        span.innerHTML += "It may be useful to attach the current ";
+        span.appendChild(document.createTextNode("It may be useful to attach the current "));
 
         let anchor2 = document.createElement("a");
         anchor2.setAttribute("href", window.location.href + "/debug");
@@ -208,7 +213,7 @@ export function create_modals(_state) {
 
     function show_info_modal(message) {
         let span = document.getElementById("info-modal-message");
-        span.innerHTML = "&nbsp;" + message;
+        span.textContent = "\u00a0" + message;
         let m = bootstrap.Modal.getInstance("#info-modal");
         m.show();
         modals_up.set("info-modal", true);
@@ -216,7 +221,7 @@ export function create_modals(_state) {
 
     function show_prompt_modal(message, handler) {
         let span = document.getElementById("prompt-modal-message");
-        span.innerHTML = "&nbsp;" + message;
+        span.textContent = "\u00a0" + message;
         let m = bootstrap.Modal.getInstance("#prompt-modal");
         let button = document.getElementById("prompt-modal-ok");
         button.onclick = handler;

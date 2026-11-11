@@ -15,6 +15,36 @@ export {
 
 const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+// marks placed optimistically on the client; server echo is suppressed
+// via per-event eventids so we don't redraw what we already drew.
+const OPTIMISTIC_MARKS = new Set([
+    "triangle", "square", "letter", "number", "label", "remove_mark",
+]);
+
+// marks that participate in click-and-drag placement.
+const DRAG_MARKS = new Set(["triangle", "square", "letter", "number"]);
+
+// mirrors the server's validateLabel (pkg/state/command_decoder.go):
+// 1..3 code points, no control characters. Keeps the client from placing
+// labels optimistically that the server will reject.
+const MAX_LABEL_LENGTH = 3;
+function is_valid_label(s) {
+    if (s == null) {
+        return false;
+    }
+    let runes = Array.from(s);
+    if (runes.length == 0 || runes.length > MAX_LABEL_LENGTH) {
+        return false;
+    }
+    for (let ch of runes) {
+        let code = ch.codePointAt(0);
+        if (code < 0x20 || (code >= 0x7f && code < 0xa0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // specifically into 4 bytes
 function pack_int(n) {
     let byte_array = new Uint8Array([0, 0, 0, 0]);
@@ -58,6 +88,14 @@ class NetworkHandler {
         this.add_listeners();
 
         this.blocked = null;
+
+        // eventids for mark events we applied optimistically; used to
+        // suppress the server echo so we don't double-render.
+        this.my_mark_events = new Set();
+
+        // ids of cells we placed via click-and-drag in the current gesture;
+        // the subsequent click event skips any coord that's in here.
+        this.drag_mark_coords = new Set();
 
         // in a var for now so we can do exponential backoff in the future
         this.backoff = 0;
@@ -147,7 +185,6 @@ class NetworkHandler {
 
         document.addEventListener("keydown", (event) => this.keydown(event));
         document.addEventListener("keyup", (event) => this.keyup(event));
-        document.addEventListener("wheel", (event) => this.wheel(event), {passive: false});
 
         window.addEventListener("focus", () => this.focus());
     }
@@ -166,6 +203,11 @@ class NetworkHandler {
         let id = payload["eventid"];
         if (this.blocked == id) {
             this.blocked = null;
+        }
+        // echo of an optimistic mark we already applied — ack and skip.
+        if (OPTIMISTIC_MARKS.has(evt) && this.my_mark_events.has(id)) {
+            this.my_mark_events.delete(id);
+            return;
         }
         var coords;
         var index;
@@ -213,10 +255,6 @@ class NetworkHandler {
                 break;
             case "trash":
                 this.state.reset();
-                break;
-            case "update_buffer":
-                value = payload["value"];
-                this.state.update_buffer(value);
                 break;
             case "update_settings":
                 value = payload["value"];
@@ -347,7 +385,7 @@ class NetworkHandler {
     }
 
     prepare_score() {
-        let payload = {"event": "estimate"};
+        let payload = {"event": "score"};
         this.prepare(payload);
     }
 
@@ -358,11 +396,6 @@ class NetworkHandler {
 
     prepare_settings(settings) {
         let payload = {"event": "update_settings", "value": settings};
-        this.prepare(payload);
-    }
-
-    prepare_buffer(num) {
-        let payload = {"event":"update_buffer", "value": num};
         this.prepare(payload);
     }
 
@@ -454,6 +487,11 @@ class NetworkHandler {
             this.blocked = id;
         }
 
+        // remember mark eventids so we can drop the server echo for them
+        if (OPTIMISTIC_MARKS.has(type)) {
+            this.my_mark_events.add(id);
+        }
+
         //console.log("sending:", payload);
         
         // first create the json payload
@@ -477,47 +515,7 @@ class NetworkHandler {
         this.fromserver(payload);
     }
 
-    wheel(event) {
-        if (!this.state?.wheel_navigation || this.state.modals.modals_up.size > 0 ||
-            !event.target.closest?.("#review, #explorer_container") ||
-            document.activeElement?.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])") ||
-            event.altKey || event.metaKey) {
-            return;
-        }
-        const delta = event.deltaY || (event.shiftKey ? event.deltaX : 0);
-        if (!delta || (!event.shiftKey && Math.abs(event.deltaX) > Math.abs(event.deltaY))) return;
-        event.preventDefault();
-
-        const now = performance.now();
-        if (now - (this.last_wheel_time ?? -Infinity) < 120) return;
-        this.last_wheel_time = now;
-        const forward = delta > 0;
-        if (event.ctrlKey) {
-            if (forward) this.prepare_fastforward();
-            else this.prepare_rewind();
-        } else if (event.shiftKey) {
-            const tree = this.state.tree_graphics;
-            const target = tree.navigation_target(forward ? 10 : -10);
-            if (target != null && target !== tree.current_index) {
-                this.prepare({event: "goto_grid", value: target});
-            }
-        } else if (forward) {
-            this.prepare_right();
-        } else {
-            this.prepare_left();
-        }
-    }
-
     keydown(event) {
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o" &&
-            !event.shiftKey && !event.altKey && !event.isComposing) {
-            event.preventDefault();
-            if (!event.repeat && this.state.modals.modals_up.size === 0) {
-                this.state.modals.show_modal("upload-modal");
-            }
-            return;
-        }
-
         let payload = {"event": "keydown", "value": event.key};
         let shift = this.state.keys_down.has("Shift");
         let ctrl = this.state.keys_down.has("Control");
@@ -525,8 +523,8 @@ class NetworkHandler {
         let meta = this.state.keys_down.has("Meta");
         // logical xor
         let jump = this.state.branch_jump != shift
-        if (event.isComposing || this.state.modals.modals_up.size > 0 ||
-            document.activeElement?.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) {
+        let on_input_bar = document.activeElement.tagName == "INPUT";
+        if (on_input_bar) {
             return;
         }
 
@@ -622,9 +620,8 @@ class NetworkHandler {
                 }
                 break;
             case "Enter":
-                if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
-                    event.preventDefault();
-                    if (!event.repeat) this.state.trigger_score();
+                if (ctrl) {
+                    this.state.trigger_score();
                 }
                 break;
             default:
@@ -640,7 +637,8 @@ class NetworkHandler {
 
     pointerdown(event) {
         if (event.pointerType == "mouse") {
-            this.state.ispointerdown = !event.altKey;
+            this.state.ispointerdown = true;
+            this.drag_mark_coords.clear();
             //let payload = {"event": "pointerdown"};
             //this.prepare(payload);
         }
@@ -663,7 +661,7 @@ class NetworkHandler {
 
     pointermove(event) {
         if (event.pointerType == "mouse") {
-            if (this.state.mark == "pen" && this.state.ispointerdown && !event.altKey) {
+            if (this.state.mark == "pen" && this.state.ispointerdown) {
                 let [x,y,inside] = this.state.board_graphics.board_relative_coords(event.clientX, event.clientY);
                 let x0 = this.state.penx;
                 if (x0 == null) {
@@ -678,6 +676,9 @@ class NetworkHandler {
                 this.state.peny = y;
                 this.prepare(payload);
             } else {
+                if (this.state.ispointerdown && DRAG_MARKS.has(this.state.mark)) {
+                    this.try_drag_mark(event.clientX, event.clientY);
+                }
                 let coords = this.state.board_graphics.pos_to_coord(event.clientX, event.clientY);
                 let payload = {"event": "pointermove", "value": coords};
                 this.prepare(payload);
@@ -686,8 +687,67 @@ class NetworkHandler {
         // mobile doesn't get ghosts
     }
 
+    // Place a mark at the cell under (clientX, clientY) as part of a drag
+    // gesture. Skips cells already marked or already visited in this drag.
+    try_drag_mark(clientX, clientY) {
+        let coords = this.state.board_graphics.pos_to_coord(clientX, clientY);
+        let x = coords[0];
+        let y = coords[1];
+        if (x < 0 || y < 0 || x >= this.state.size || y >= this.state.size) {
+            return;
+        }
+        let id = x.toString() + "-" + y.toString();
+        if (this.drag_mark_coords.has(id)) {
+            return;
+        }
+        this.drag_mark_coords.add(id);
+
+        // don't overwrite existing marks during a drag
+        if (this.state.marks.has(id)) {
+            return;
+        }
+
+        let mark = this.state.mark;
+        let coord = new Coord(x, y);
+        let payload = {"event": mark};
+        switch (mark) {
+            case "triangle":
+                payload["value"] = coords;
+                this.state.place_triangle(coord);
+                break;
+            case "square":
+                payload["value"] = coords;
+                this.state.place_square(coord);
+                break;
+            case "letter":
+                if (this.state.custom_label != "") {
+                    // custom_label was validated when the prompt was submitted
+                    payload["event"] = "label";
+                    payload["value"] = {"coords": coords, "label": this.state.custom_label};
+                    this.state.place_label_string({coord: coord, text: this.state.custom_label});
+                } else {
+                    let letter = this.state.next_letter();
+                    if (letter == null) {
+                        return;
+                    }
+                    payload["value"] = {"coords": coords, "letter": letter};
+                    this.state.place_label({coord: coord, text: letter});
+                }
+                break;
+            case "number":
+                let number = this.state.next_number();
+                payload["value"] = {"coords": coords, "number": number};
+                this.state.place_label({coord: coord, text: String(number)});
+                break;
+            default:
+                return;
+        }
+        this.prepare(payload);
+    }
+
     touchstart(event) {
         this.state.ispointerdown = true;
+        this.drag_mark_coords.clear();
     }
 
     touchend(event) {
@@ -719,8 +779,14 @@ class NetworkHandler {
             this.state.peny = y;
 
             this.prepare(payload);
+        } else if (this.state.ispointerdown && DRAG_MARKS.has(this.state.mark)) {
+            let touch = event.touches[0];
+            let [, , inside] = this.state.board_graphics.board_relative_coords(touch.clientX, touch.clientY);
+            if (inside) {
+                event.preventDefault();
+            }
+            this.try_drag_mark(touch.clientX, touch.clientY);
         }
-        // nothing to do if this.mark != "pen"
     }
 
     click(event) {
@@ -729,13 +795,24 @@ class NetworkHandler {
         let y = event.clientY;
         let flip = this.state.keys_down.has("Shift");
 
-        //let explorer_node = this.state.tree_graphics.capture_mouse(x, y);
-        let index = this.state.tree_graphics.capture_mouse(x, y);
-        if (index != -1) {
-            let payload = {"event": "goto_grid", "value": index};
-            this.prepare(payload);
+        // only clicks that land directly on the explorer or the board count
+        // otherwise a click on something overlapping them (e.g. the
+        // collapsed button dropdown) would also place a stone underneath
+        if (this.state.tree_graphics.container.contains(event.target)) {
+            //let explorer_node = this.state.tree_graphics.capture_mouse(x, y);
+            let index = this.state.tree_graphics.capture_mouse(x, y);
+            if (index != -1) {
+                let payload = {"event": "goto_grid", "value": index};
+                this.prepare(payload);
+            }
             return;
         }
+
+        let review = document.getElementById("review");
+        if (review == null || !review.contains(event.target)) {
+            return;
+        }
+
         let coords = this.state.board_graphics.pos_to_coord(x, y);
 
         // don't need to share if click is outside the board
@@ -747,31 +824,37 @@ class NetworkHandler {
         let has_child = false;
         let stone_there = this.state.board.get(new Coord(coords[0], coords[1])) != 0;
 
-        if (event.altKey) {
-            if (stone_there) this.prepare({event: "goto_coord", value: coords});
-            return;
-        }
-
         let payload = {};
 
         if (this.state.mark == "score") {
-            payload = {"event": "estimate_mark", value: coords};
+            payload = {"event": "markdead", value: coords};
         } else if (this.state.mark != "") {
             if (this.state.mark == "pen") {
                 return;
             }
 
             let id = coords[0].toString() + "-" + coords[1].toString();
+
+            // a drag already placed this cell; don't let pointerup→click
+            // toggle it off.
+            if (this.drag_mark_coords.has(id)) {
+                return;
+            }
+
+            let coord_obj = new Coord(coords[0], coords[1]);
             if (this.state.marks.has(id)) {
                 payload = {"event": "remove_mark", value: coords};
+                this.state.remove_mark(coords[0], coords[1]);
             } else {
                 payload = {"event": this.state.mark};
                 switch(this.state.mark) {
                     case "triangle":
                         payload["value"] = coords;
+                        this.state.place_triangle(coord_obj);
                         break;
                     case "square":
                         payload["value"] = coords;
+                        this.state.place_square(coord_obj);
                         break;
                     case "letter":
                         let label = "";
@@ -780,9 +863,16 @@ class NetworkHandler {
                                 let handler = () => {
                                     label = this.state.modals.get_prompt_bar();
                                     this.state.modals.clear_prompt_bar();
+                                    if (!is_valid_label(label)) {
+                                        this.state.modals.show_toast(
+                                            "Labels must be 1 to " + MAX_LABEL_LENGTH + " characters."
+                                        );
+                                        return;
+                                    }
                                     this.state.custom_label = label;
                                     payload = {"event": "label"};
                                     payload["value"] = {"coords": coords, "label": label};
+                                    this.state.place_label_string({coord: coord_obj, text: label});
                                     this.prepare(payload);
                                 }
                                 this.state.modals.show_prompt_modal(
@@ -793,6 +883,7 @@ class NetworkHandler {
                             } else {
                                 payload = {"event": "label"};
                                 payload["value"] = {"coords": coords, "label": this.state.custom_label};
+                                this.state.place_label_string({coord: coord_obj, text: this.state.custom_label});
                             }
                         } else {
                             let letter = this.state.next_letter();
@@ -800,13 +891,15 @@ class NetworkHandler {
                                 return;
                             }
                             label = letter;
-    
+
                             payload["value"] = {"coords": coords, "letter": label};
+                            this.state.place_label({coord: coord_obj, text: label});
                         }
                         break;
                     case "number":
                         let number = this.state.next_number();
                         payload["value"] = {"coords": coords, "number": number};
+                        this.state.place_label({coord: coord_obj, text: String(number)});
                         break;
                 }
             }

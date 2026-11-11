@@ -13,10 +13,43 @@ package event
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
+)
+
+const (
+	// MaxMessageBytes caps one incoming message; the largest legitimate
+	// ones are uploaded files (base64 encoded)
+	MaxMessageBytes = 16 << 20
+
+	// messageTimeout is how long the body of a message can take to arrive
+	messageTimeout = 30 * time.Second
+
+	// sendQueueSize is the per-connection outbound buffer. Each connection
+	// drains its own queue on a dedicated goroutine, so a slow client can
+	// fall this far behind before it is disconnected without blocking any
+	// other client or the room lock.
+	sendQueueSize = 256
+
+	// writeTimeout bounds a single socket write, so a client that stops
+	// reading (a stalled TCP connection) can't pin the writer goroutine, and
+	// the socket's write lock, indefinitely
+	writeTimeout = 10 * time.Second
+)
+
+var (
+	// ErrSlowConsumer is returned by SendEvent when the connection's outbound
+	// buffer is full. The connection is closed so a stalled client can't hold
+	// up broadcasts to everyone else.
+	ErrSlowConsumer = errors.New("slow consumer: send buffer full")
+
+	// ErrClosed is returned by SendEvent after the connection has been closed.
+	ErrClosed = errors.New("event channel closed")
 )
 
 type EventChannel interface {
@@ -27,34 +60,89 @@ type EventChannel interface {
 	ID() string
 }
 
-// DefaultEventChannel is a thin wrapper around a ReadWriteCloser
+// DefaultEventChannel wraps a ReadWriteCloser. Sends are buffered and written
+// on a dedicated per-connection goroutine so that a single slow client can
+// never stall a broadcast to everyone else (or the room lock the broadcast is
+// holding). Reads stay synchronous on the caller's goroutine.
 type DefaultEventChannel struct {
-	ws io.ReadWriteCloser
-	id string
+	ws       io.ReadWriteCloser
+	id       string
+	queue    chan Event
+	done     chan struct{}
+	start    sync.Once
+	doneOnce sync.Once
+	closeOne sync.Once
+	closeErr error
 }
 
 func NewDefaultEventChannel(ws io.ReadWriteCloser) EventChannel {
 	// assign the new connection a new id
 	id := uuid.New().String()
 
-	return &DefaultEventChannel{ws, id}
+	return &DefaultEventChannel{
+		ws:    ws,
+		id:    id,
+		queue: make(chan Event, sendQueueSize),
+		done:  make(chan struct{}),
+	}
 }
 
 func (ec *DefaultEventChannel) ID() string {
 	return ec.id
 }
 
+// SendEvent enqueues evt for delivery and returns without touching the socket.
+// It never blocks: if the connection has been closed it returns ErrClosed, and
+// if the outbound buffer is full (a stalled client) it closes the connection
+// and returns ErrSlowConsumer rather than blocking the caller.
 func (ec *DefaultEventChannel) SendEvent(evt Event) error {
-	// marshal event back into data
-	data, err := json.Marshal(evt)
-	if err != nil {
-		return err
+	select {
+	case <-ec.done:
+		return ErrClosed
+	default:
 	}
-	_, err = ec.ws.Write(data)
-	if err != nil {
-		return err
+
+	// start the writer lazily, so a channel that never sends never spawns a
+	// goroutine
+	ec.start.Do(func() { go ec.sendLoop() })
+
+	select {
+	case ec.queue <- evt:
+		return nil
+	default:
+		// the writer is stuck in Write, which holds the socket's write lock;
+		// x/net/websocket's Close needs that same lock to send a close frame,
+		// so closing synchronously here would block the caller (and the room
+		// lock it holds) until the stalled write gives up. Reject further
+		// sends immediately and close the socket in the background instead.
+		ec.markDone()
+		go ec.Close() //nolint:errcheck
+		return ErrSlowConsumer
 	}
-	return nil
+}
+
+// sendLoop is the sole writer to the socket: it drains the outbound queue in
+// order until the connection is closed or a write fails.
+func (ec *DefaultEventChannel) sendLoop() {
+	for {
+		select {
+		case <-ec.done:
+			return
+		case evt := <-ec.queue:
+			data, err := json.Marshal(evt)
+			if err != nil {
+				// a single unmarshalable event shouldn't kill the connection
+				continue
+			}
+			if d, ok := ec.ws.(interface{ SetWriteDeadline(time.Time) error }); ok {
+				_ = d.SetWriteDeadline(time.Now().Add(writeTimeout))
+			}
+			if _, err := ec.ws.Write(data); err != nil {
+				_ = ec.Close()
+				return
+			}
+		}
+	}
 }
 
 func (ec *DefaultEventChannel) OnConnect() {
@@ -74,53 +162,49 @@ func (ec *DefaultEventChannel) ReceiveEvent() (Event, error) {
 	return evt, nil
 }
 
+// Close stops the writer goroutine and closes the underlying socket. It is
+// idempotent and safe to call from the sender goroutine, a broadcaster, or the
+// connection handler.
 func (ec *DefaultEventChannel) Close() error {
-	return ec.ws.Close()
+	ec.markDone()
+	ec.closeOne.Do(func() {
+		ec.closeErr = ec.ws.Close()
+	})
+	return ec.closeErr
+}
+
+// markDone stops the writer and makes further sends fail with ErrClosed,
+// without touching the socket. It is idempotent.
+func (ec *DefaultEventChannel) markDone() {
+	ec.doneOnce.Do(func() { close(ec.done) })
 }
 
 func (ec *DefaultEventChannel) readPacket() ([]byte, error) {
 	// read in 4 bytes (length of rest of message)
 	lengthArray := make([]byte, 4)
-	_, err := ec.ws.Read(lengthArray)
+	_, err := io.ReadFull(ec.ws, lengthArray)
 	if err != nil {
 		return nil, err
 	}
 	length := binary.LittleEndian.Uint32(lengthArray)
 
+	// the length comes from the client, so check it before trusting it
+	if length > MaxMessageBytes {
+		return nil, fmt.Errorf("message too large: %d bytes (max %d)", length, MaxMessageBytes)
+	}
+
+	// once a message has started, the rest of it has to arrive promptly
+	// (waiting between messages is fine, so this is only set here)
+	if d, ok := ec.ws.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = d.SetReadDeadline(time.Now().Add(messageTimeout))
+		defer func() { _ = d.SetReadDeadline(time.Time{}) }()
+	}
+
 	// read in the rest of the data
-	var data []byte
-
-	if length > 1024 {
-		data, err = ec.readBytes(int(length))
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		data = make([]byte, length)
-		_, err := ec.ws.Read(data)
-
-		if err != nil {
-			return nil, err
-		}
+	data := make([]byte, length)
+	_, err = io.ReadFull(ec.ws, data)
+	if err != nil {
+		return nil, err
 	}
 	return data, nil
-}
-
-func (ec *DefaultEventChannel) readBytes(size int) ([]byte, error) {
-	chunkSize := 64
-	message := []byte{}
-	for len(message) < size {
-		l := size - len(message)
-		if l > chunkSize {
-			l = chunkSize
-		}
-		temp := make([]byte, l)
-		n, err := ec.ws.Read(temp)
-		if err != nil {
-			return nil, err
-		}
-		message = append(message, temp[:n]...)
-	}
-
-	return message, nil
 }

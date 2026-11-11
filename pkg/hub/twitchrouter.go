@@ -136,22 +136,14 @@ func (h *Hub) twitchCallbackGet(w http.ResponseWriter, r *http.Request) {
 
 func (h *Hub) twitchCallbackPost(w http.ResponseWriter, r *http.Request) {
 	// read the body into a []byte
-	body, _ := io.ReadAll(r.Body)
+	// twitch notifications are small
+	body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 
 	// try to read the body into a TwitchJSON struct
 	var req twitch.TwitchJSON
 	err := json.Unmarshal(body, &req)
 	if err != nil {
 		h.logger.Error("twitchCallbackPost:unmarshal", "err", err)
-		return
-	}
-
-	// on subscriptions, twitch sends a challenge that we need to respond to
-	if req.Challenge != "" {
-		_, err = w.Write([]byte(req.Challenge))
-		if err != nil {
-			h.logger.Error("twitchCallbackPost:write", "err", err)
-		}
 		return
 	}
 
@@ -164,9 +156,23 @@ func (h *Hub) twitchCallbackPost(w http.ResponseWriter, r *http.Request) {
 	message := msgid + timestamp + string(body)
 
 	// do verification
+	// (this has to happen before echoing the challenge, otherwise anyone
+	// can make this endpoint reflect arbitrary content)
 	v := twitch.Verify(h.cfg.Twitch.Secret, message, signature)
 	if !v {
 		h.logger.Info("unverified message")
+		return
+	}
+
+	// on subscriptions, twitch sends a challenge that we need to respond to
+	if req.Challenge != "" {
+		// never let the browser interpret the echoed challenge as html
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, err = w.Write([]byte(req.Challenge))
+		if err != nil {
+			h.logger.Error("twitchCallbackPost:write", "err", err)
+		}
 		return
 	}
 

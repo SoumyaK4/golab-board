@@ -19,10 +19,7 @@ import (
 
 func (s *State) addFieldNode(flds fields.Fields, index int) *coord.Diff {
 	s.AnyMove()
-	tmp := s.GetNextIndex()
-	if index == -1 {
-		index = tmp
-	}
+	index = s.claimIndex(index)
 	n := tree.NewTreeNode(nil, color.Empty, index, s.current, flds)
 	s.nodes[index] = n
 	if s.root == nil {
@@ -34,7 +31,9 @@ func (s *State) addFieldNode(flds fields.Fields, index int) *coord.Diff {
 	s.current = n
 
 	// compute diff
-	diff := s.computeDiffSetup(index)
+	// the board is still at the parent's position, so no need to navigate
+	// there (doing that for every node made loading quadratic)
+	diff := s.setupDiff(n)
 	s.board.ApplyDiff(diff)
 	s.current.SetDiff(diff)
 	return diff
@@ -42,10 +41,7 @@ func (s *State) addFieldNode(flds fields.Fields, index int) *coord.Diff {
 
 func (s *State) addPassNode(col color.Color, flds fields.Fields, index int) {
 	s.AnyMove()
-	tmp := s.GetNextIndex()
-	if index == -1 {
-		index = tmp
-	}
+	index = s.claimIndex(index)
 	n := tree.NewTreeNode(nil, col, index, s.current, flds)
 	s.nodes[index] = n
 	if s.root == nil {
@@ -155,10 +151,7 @@ func (s *State) addNode(crd *coord.Coord, col color.Color, flds fields.Fields, i
 		}
 	}
 
-	tmp := s.GetNextIndex()
-	if index == -1 {
-		index = tmp
-	}
+	index = s.claimIndex(index)
 	n := tree.NewTreeNode(crd, color.Color(col), index, s.current, flds)
 
 	s.nodes[index] = n
@@ -223,7 +216,10 @@ func (s *State) AddStones(moves []*coord.Stone) {
 
 // SmartGraft doesn't duplicate existing moves
 func (s *State) smartGraft(parentIndex int, moves []*coord.Stone) {
-	parent := s.nodes[parentIndex]
+	parent, ok := s.nodes[parentIndex]
+	if !ok {
+		return
+	}
 	savedPrefs := make(map[int]int)
 	save := s.current.Index
 
@@ -420,13 +416,7 @@ func (s *State) paste() {
 	branch.RecomputeDepth()
 
 	// recompute diffs
-	tree.Fmap(func(n *tree.TreeNode) {
-		if IsMove(n) {
-			n.SetDiff(s.computeDiffMove(n.Index))
-		} else {
-			n.SetDiff(s.computeDiffSetup(n.Index))
-		}
-	}, branch)
+	s.computeBranchDiffs(branch)
 
 	// restore savedpref
 	s.current.PreferredChild = savedPref

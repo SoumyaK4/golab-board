@@ -15,6 +15,9 @@
 
 A free and open-source multi-user go board.
 
+This branch also provides an optional [Tampermonkey userscript](userscripts/README.md)
+for the redesigned UI, mouse navigation, and local score estimation on Go Lab.
+
 <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/golab/board/refs/heads/test/docs/img/darkmode.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/golab/board/refs/heads/test/docs/img/lightmode.png">

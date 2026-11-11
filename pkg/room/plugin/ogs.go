@@ -21,7 +21,9 @@ import (
 	"github.com/golab/board/internal/fetch"
 	"github.com/golab/board/pkg/core/color"
 	"github.com/golab/board/pkg/core/coord"
+	"github.com/golab/board/pkg/core/parser"
 	"github.com/golab/board/pkg/event"
+	"github.com/golab/board/pkg/logx"
 	"golang.org/x/net/websocket"
 )
 
@@ -67,7 +69,12 @@ type OGSConnector struct {
 	First   color.Color
 	Exit    bool
 	fetcher fetch.Fetcher
+	logger  logx.Logger
 	mu      sync.Mutex
+}
+
+func (o *OGSConnector) SetLogger(l logx.Logger) {
+	o.logger = l
 }
 
 func NewOGSPlugin(room Room, f fetch.Fetcher) (Plugin, error) {
@@ -138,59 +145,6 @@ func (o *OGSConnector) chatConnect() error {
 	return o.send("chat/connect", payload)
 }
 
-func readFrameFromChan(socketchan chan byte) ([]byte, error) {
-	data := []byte{}
-	started := false
-	depth := 0
-	for {
-		// when the websocket is closed, ok = false
-		b, ok := <-socketchan
-		if !ok {
-			// socket closed by reader
-			return nil, nil
-		}
-		if !started {
-			if b != '[' {
-				return nil, fmt.Errorf("invalid starting byte: %c", b)
-			}
-			depth++
-			data = append(data, b)
-			started = true
-		} else {
-			switch b {
-			case '[':
-				depth++
-			case ']':
-				depth--
-			}
-			data = append(data, b)
-			if depth == 0 && b == ']' {
-				return data, nil
-			}
-		}
-	}
-}
-
-func (o *OGSConnector) readSocketToChan(socketchan chan byte) error {
-	defer close(socketchan)
-	for {
-		data := make([]byte, 256)
-		n, err := o.Socket.Read(data)
-		if err != nil {
-			// this will cause the websocket to close
-			// therefore readFrame will naturally come to an end
-			return err
-		}
-		for _, b := range data[:n] {
-			socketchan <- b
-		}
-		if o.Exit {
-			break
-		}
-	}
-	return nil
-}
-
 func (o *OGSConnector) Start(args map[string]any) {
 	id := args["id"].(int)
 	ogsType := args["ogsType"].(string)
@@ -211,6 +165,7 @@ func (o *OGSConnector) isExited() bool {
 }
 
 func (o *OGSConnector) ping() {
+	defer logx.Recover(o.logger, "ogs ping panicked")
 	for !o.isExited() {
 		//30 seconds seemed just a little too long was causing connection issues
 		time.Sleep(25 * time.Second)
@@ -224,6 +179,11 @@ func (o *OGSConnector) ping() {
 }
 
 func (o *OGSConnector) loop(gameID int, ogsType string) error {
+	// ogs messages are untrusted input, so a panic while handling one
+	// must end this connection rather than the whole server
+	defer o.End()
+	defer logx.Recover(o.logger, "ogs connection panicked", "game_id", gameID)
+
 	err := o.chatConnect()
 	if err != nil {
 		return err
@@ -233,35 +193,27 @@ func (o *OGSConnector) loop(gameID int, ogsType string) error {
 		return err
 	}
 
-	socketchan := make(chan byte)
-
 	go o.ping()
-	go o.readSocketToChan(socketchan) //nolint: errcheck
 
-	defer o.End()
+	// each ogs message is a json array of [topic, payload]
+	// decoding the stream (rather than counting brackets) keeps
+	// brackets inside strings (game names, chat) from breaking framing
+	dec := json.NewDecoder(o.Socket)
 
-	for !o.Exit {
-		data, err := readFrameFromChan(socketchan)
-
-		// break on error
+	for !o.isExited() {
+		var arr []any
+		err := dec.Decode(&arr)
 		if err != nil {
+			// socket closed, or the stream can't be decoded anymore
 			break
 		}
-
-		// if err == nil and data == nil
-		// then break
-		if data == nil {
-			//log.Println("socket closed")
-			break
-		}
-
-		arr := make([]any, 2)
-		err = json.Unmarshal(data, &arr)
-		if err != nil {
-			//log.Println(err)
+		if len(arr) < 2 {
 			continue
 		}
-		topic := arr[0].(string)
+		topic, ok := arr[0].(string)
+		if !ok {
+			continue
+		}
 
 		if topic == fmt.Sprintf("game/%d/move", gameID) {
 			payload := arr[1].(map[string]any)
@@ -399,9 +351,18 @@ func (o *OGSConnector) gameInfoToSGF(gamedata map[string]any) string {
 	white := whitePlayer["username"].(string)
 	blackRank := makeRank(blackPlayer["rank"].(float64))
 	whiteRank := makeRank(whitePlayer["rank"].(float64))
+	// these strings come from ogs users, so escape them before
+	// they are placed into the sgf
 	sgf = fmt.Sprintf(
 		"(;GM[1]FF[4]CA[UTF-8]SZ[%d]PB[%s]PW[%s]BR[%s]WR[%s]RU[%s]KM[%f]GN[%s]",
-		size, black, white, blackRank, whiteRank, rules, komi, name)
+		size,
+		parser.EscapeValue(black),
+		parser.EscapeValue(white),
+		blackRank,
+		whiteRank,
+		parser.EscapeValue(rules),
+		komi,
+		parser.EscapeValue(name))
 	return sgf
 }
 
@@ -423,14 +384,14 @@ func (o *OGSConnector) initStateToSGF(gamedata map[string]any) string {
 	if len(bstate) > 0 {
 		sgf += "AB"
 		for i := 0; i < len(bstate)/2; i++ {
-			sgf += fmt.Sprintf("[%s]", bstate[2*i:2*i+2])
+			sgf += fmt.Sprintf("[%s]", parser.EscapeValue(bstate[2*i:2*i+2]))
 		}
 	}
 
 	if len(wstate) > 0 {
 		sgf += "AW"
 		for i := 0; i < len(wstate)/2; i++ {
-			sgf += fmt.Sprintf("[%s]", wstate[2*i:2*i+2])
+			sgf += fmt.Sprintf("[%s]", parser.EscapeValue(wstate[2*i:2*i+2]))
 		}
 	}
 	return sgf

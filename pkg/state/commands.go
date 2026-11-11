@@ -18,6 +18,7 @@ import (
 	"github.com/golab/board/pkg/core/color"
 	"github.com/golab/board/pkg/core/coord"
 	"github.com/golab/board/pkg/core/fields"
+	"github.com/golab/board/pkg/core/tree"
 )
 
 type Command interface {
@@ -34,9 +35,7 @@ func NewAddStoneCommand(crd *coord.Coord, color color.Color) Command {
 }
 
 func (cmd *addStoneCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
 	}
 
@@ -52,6 +51,10 @@ func (cmd *addStoneCommand) Execute(s *State) (*Frame, error) {
 		return nil, nil
 	}
 
+	if err := s.checkCapacity(1); err != nil {
+		return nil, err
+	}
+
 	flds := fields.Fields{}
 	key := "B"
 	if cmd.color == color.White {
@@ -60,6 +63,10 @@ func (cmd *addStoneCommand) Execute(s *State) (*Frame, error) {
 	flds.AddField(key, cmd.crd.ToLetters())
 
 	diff := s.addNode(cmd.crd, cmd.color, flds, -1, false)
+
+	if s.autoNumber {
+		s.numberBranch()
+	}
 
 	marks := s.generateMarks()
 
@@ -84,6 +91,10 @@ func NewPassCommand(color color.Color) Command {
 }
 
 func (cmd *passCommand) Execute(s *State) (*Frame, error) {
+	if err := s.checkCapacity(1); err != nil {
+		return nil, err
+	}
+
 	flds := fields.Fields{}
 	key := "B"
 	if cmd.color == color.White {
@@ -92,10 +103,17 @@ func (cmd *passCommand) Execute(s *State) (*Frame, error) {
 	flds.AddField(key, "")
 	s.addPassNode(cmd.color, flds, -1)
 
+	// keep the branch numbers visible through a pass
+	var marks *Marks
+	if s.autoNumber {
+		s.numberBranch()
+		marks = s.generateMarks()
+	}
+
 	return &Frame{
 		Type:      DiffFrame,
 		Diff:      nil,
-		Marks:     nil,
+		Marks:     marks,
 		Comments:  nil,
 		Metadata:  nil,
 		TreeJSON:  s.saveTree(PartialNodes),
@@ -113,10 +131,11 @@ func NewRemoveStoneCommand(crd *coord.Coord) Command {
 }
 
 func (cmd *removeStoneCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
+	}
+	if err := s.checkCapacity(1); err != nil {
+		return nil, err
 	}
 
 	flds := fields.Fields{}
@@ -144,9 +163,7 @@ func NewAddTriangleCommand(crd *coord.Coord) Command {
 }
 
 func (cmd *addTriangleCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
 	}
 	l := cmd.crd.ToLetters()
@@ -163,9 +180,7 @@ func NewAddSquareCommand(crd *coord.Coord) Command {
 }
 
 func (cmd *addSquareCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
 	}
 	l := cmd.crd.ToLetters()
@@ -183,9 +198,7 @@ func NewAddLetterCommand(crd *coord.Coord, letter string) Command {
 }
 
 func (cmd *addLetterCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
 	}
 
@@ -205,9 +218,7 @@ func NewAddNumberCommand(crd *coord.Coord, number int) Command {
 }
 
 func (cmd *addNumberCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
 	}
 
@@ -227,9 +238,7 @@ func NewAddLabelCommand(crd *coord.Coord, label string) Command {
 }
 
 func (cmd *addLabelCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
 	}
 
@@ -253,7 +262,7 @@ func (cmd *removeMarkCommand) Execute(s *State) (*Frame, error) {
 		key := field.Key
 		values := field.Values
 		for _, value := range values {
-			if key == "LB" && value[:2] == l {
+			if key == "LB" && strings.HasPrefix(value, l+":") {
 				s.current.RemoveField("LB", value)
 			} else if key == "SQ" && value == l {
 				s.current.RemoveField("SQ", l)
@@ -499,6 +508,12 @@ func (cmd *pasteCommand) Execute(s *State) (*Frame, error) {
 		return nil, nil
 	}
 
+	size := 0
+	tree.Fmap(func(*tree.TreeNode) { size++ }, s.clipboard)
+	if err := s.checkCapacity(size); err != nil {
+		return nil, err
+	}
+
 	s.paste()
 
 	marks := s.generateMarks()
@@ -522,8 +537,21 @@ func NewGraftCommand(text string) Command {
 	return &graftCommand{text}
 }
 
+// MaxGraftMoves caps the moves in one graft
+const MaxGraftMoves = 1000
+
 func (cmd *graftCommand) Execute(s *State) (*Frame, error) {
-	tokens := strings.Split(cmd.text, " ")
+	tokens := strings.Fields(cmd.text)
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("nothing to graft")
+	}
+	// +1 for the optional move number
+	if len(tokens) > MaxGraftMoves+1 {
+		return nil, fmt.Errorf("too many moves to graft (max %d)", MaxGraftMoves)
+	}
+	if err := s.checkCapacity(len(tokens)); err != nil {
+		return nil, err
+	}
 
 	// currently accepting the first arg as a move number or not
 	var parentIndex int
@@ -551,7 +579,11 @@ func (cmd *graftCommand) Execute(s *State) (*Frame, error) {
 
 	// setup the moves array and initial color
 	moves := []*coord.Stone{}
-	col := s.nodes[parentIndex].Color
+	parent, ok := s.nodes[parentIndex]
+	if !ok {
+		return nil, fmt.Errorf("graft point not found")
+	}
+	col := parent.Color
 	if col == color.Empty {
 		col = color.White
 	}
@@ -612,9 +644,7 @@ func NewMarkDeadCommand(crd *coord.Coord) Command {
 }
 
 func (cmd *markDeadCommand) Execute(s *State) (*Frame, error) {
-	x := cmd.crd.X
-	y := cmd.crd.Y
-	if x >= s.size || y >= s.size || x < 0 || y < 0 {
+	if cmd.crd == nil || !cmd.crd.Valid(s.size) {
 		return nil, nil
 	}
 
