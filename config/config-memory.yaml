@@ -1,6 +1,0 @@
-server:
-  host: localhost
-  port: 8080
-  url: http://localhost:8080
-db:
-  type: memory
