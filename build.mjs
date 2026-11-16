@@ -7,7 +7,7 @@ const metadata = `// ==UserScript==
 // @namespace    https://github.com/SoumyaK4/golab-board
 // @version      1.0.0
 // @description  Responsive Go Lab UI, mouse navigation, accessible controls and local rule-aware score estimates.
-// @author       Soumya Kundu
+// @author       SoumyaK4
 // @license      MIT
 // @match        https://golab.gg/*
 // @match        https://*.golab.gg/*
