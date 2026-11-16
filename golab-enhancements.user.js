@@ -7,8 +7,6 @@
 // @license      MIT
 // @match        https://golab.gg/*
 // @match        https://*.golab.gg/*
-// @match        http://localhost/*
-// @match        http://127.0.0.1/*
 // @run-at       document-end
 // @sandbox      raw
 // @grant        none
